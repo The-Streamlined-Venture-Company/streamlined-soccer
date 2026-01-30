@@ -187,7 +187,12 @@ const PlayerNode: React.FC<PlayerNodeProps> = ({
             />
           ) : (
             <div
-              onClick={() => !isBeingDragged && setIsEditing(true)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isBeingDragged) setIsEditing(true);
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
               className={`text-sm md:text-xl font-black tracking-tighter drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] transition-all px-3 py-0.5 rounded-md uppercase italic ${
                 player.name
                 ? 'text-white bg-black/50 backdrop-blur-sm border border-white/10'
