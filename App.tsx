@@ -63,11 +63,17 @@ const App: React.FC = () => {
 
   // Swap players (exchange names and ratings only - position and team color are fixed to slots)
   const handleSwapPlayers = useCallback((id1: string, id2: string) => {
+    console.log('[Swap] handleSwapPlayers called:', id1, '<->', id2);
     setPitchPlayers(prev => {
       const player1 = prev.find(p => p.id === id1);
       const player2 = prev.find(p => p.id === id2);
-      if (!player1 || !player2) return prev;
+      console.log('[Swap] Player1:', player1?.name, 'Player2:', player2?.name);
+      if (!player1 || !player2) {
+        console.log('[Swap] Failed - player not found');
+        return prev;
+      }
 
+      console.log('[Swap] Swapping:', player1.name, '<->', player2.name);
       return prev.map(p => {
         if (p.id === id1) {
           return {
@@ -88,15 +94,10 @@ const App: React.FC = () => {
     });
   }, []);
 
-  // Drag and drop hook with swap support
+  // Drag and drop hook - swap only, positions are fixed
   const { handleDragStart, draggedId, dropTargetId } = useDragAndDrop({
     pitchRef,
     players: pitchPlayers,
-    onPositionUpdate: (id, x, y) => {
-      setPitchPlayers(prev => prev.map(p =>
-        p.id === id ? { ...p, position: { x, y } } : p
-      ));
-    },
     onSwapPlayers: handleSwapPlayers,
   });
 
