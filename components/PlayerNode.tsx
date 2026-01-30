@@ -140,12 +140,6 @@ const PlayerNode: React.FC<PlayerNodeProps> = ({
         <div className={`relative group transition-transform duration-150 ${
           isBeingDragged ? 'scale-110' : ''
         } ${isDropTarget ? 'scale-115' : ''}`}>
-          {/* Rating Badge */}
-          {showRatings && player.rating && (
-            <div className={`absolute -top-1 -right-1 z-30 ${getRatingColor(player.rating)} text-white text-[10px] font-black w-6 h-6 rounded-full flex items-center justify-center border-2 border-slate-900 shadow-lg`}>
-              {player.rating}
-            </div>
-          )}
 
           {/* Shadow - larger when dragging */}
           <div className={`absolute left-1/2 -translate-x-1/2 bg-black/40 blur-md rounded-full pointer-events-none transition-all duration-150 ${
@@ -201,7 +195,10 @@ const PlayerNode: React.FC<PlayerNodeProps> = ({
                 isBeingDragged ? '' : 'cursor-pointer hover:scale-105'
               }`}
             >
-              {player.name || "ADD"}
+              {player.name || "TAP"}
+              {player.name && !player.rating && (
+                <span className="ml-1 text-[8px] text-amber-400 not-italic font-bold align-top">+1</span>
+              )}
             </div>
           )}
         </div>

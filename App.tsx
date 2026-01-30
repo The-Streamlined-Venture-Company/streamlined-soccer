@@ -259,16 +259,6 @@ const App: React.FC = () => {
               </button>
             )}
 
-            <div className="flex items-center bg-slate-900 border border-white/5 rounded-xl px-3 py-2 gap-2">
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Ratings</span>
-              <button
-                onClick={() => setShowRatings(!showRatings)}
-                className={`w-9 h-5 rounded-full transition-all relative ${showRatings ? 'bg-emerald-600' : 'bg-slate-800'}`}
-              >
-                <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${showRatings ? 'left-5' : 'left-1'}`} />
-              </button>
-            </div>
-
             <button
               onClick={handleExport}
               disabled={isExporting}
@@ -304,18 +294,6 @@ const App: React.FC = () => {
             />
           ))}
 
-          {showRatings && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-8 pointer-events-none opacity-40">
-              <div className="text-white font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-black ring-1 ring-white/20"></span>
-                B: {totalRating('black')}
-              </div>
-              <div className="text-white font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-white ring-1 ring-black/20"></span>
-                W: {totalRating('white')}
-              </div>
-            </div>
-          )}
         </Pitch>
 
         {hideUI && (
