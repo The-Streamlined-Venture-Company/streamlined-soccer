@@ -415,26 +415,40 @@ async function executeFunction(
           };
         }
 
-        // Calculate overall score from skills if not provided
-        const skills = {
-          shooting: (args.shooting as number) ?? 5,
-          passing: (args.passing as number) ?? 5,
-          ball_control: (args.ball_control as number) ?? 5,
-          playmaking: (args.playmaking as number) ?? 5,
-          defending: (args.defending as number) ?? 5,
-          fitness: (args.fitness as number) ?? 5,
-        };
+        // If overall_score is provided, derive skill values from it
+        // overall_score is a generated column = (sum of skills / 6) * 10
+        // So if overall = 75, each skill should be 75/10 = 7.5 -> round to 7 or 8
+        let skills: Record<string, number>;
 
-        const overall_score = args.overall_score ??
-          Math.round(((skills.shooting + skills.passing + skills.ball_control +
-            skills.playmaking + skills.defending + skills.fitness) / 6) * 10);
+        if (args.overall_score !== undefined && args.overall_score !== null) {
+          // Convert overall score (0-100) to skill value (0-10)
+          const targetSkill = Math.round((args.overall_score as number) / 10);
+          const clampedSkill = Math.max(1, Math.min(10, targetSkill));
+          skills = {
+            shooting: (args.shooting as number) ?? clampedSkill,
+            passing: (args.passing as number) ?? clampedSkill,
+            ball_control: (args.ball_control as number) ?? clampedSkill,
+            playmaking: (args.playmaking as number) ?? clampedSkill,
+            defending: (args.defending as number) ?? clampedSkill,
+            fitness: (args.fitness as number) ?? clampedSkill,
+          };
+        } else {
+          skills = {
+            shooting: (args.shooting as number) ?? 5,
+            passing: (args.passing as number) ?? 5,
+            ball_control: (args.ball_control as number) ?? 5,
+            playmaking: (args.playmaking as number) ?? 5,
+            defending: (args.defending as number) ?? 5,
+            fitness: (args.fitness as number) ?? 5,
+          };
+        }
 
+        // Note: overall_score is a GENERATED column - don't include it in insert!
         const newPlayer = {
           name: args.name,
           status: args.status || "regular",
           preferred_position: args.preferred_position || "everywhere",
           ...skills,
-          overall_score,
           is_linchpin: args.is_linchpin || false,
           aliases: args.aliases || [],
           notes: args.notes || null,
@@ -491,28 +505,23 @@ async function executeFunction(
         if (typeof args.playmaking === "number") updates.playmaking = args.playmaking;
         if (typeof args.defending === "number") updates.defending = args.defending;
         if (typeof args.fitness === "number") updates.fitness = args.fitness;
-        if (typeof args.overall_score === "number") updates.overall_score = args.overall_score;
+        // Note: overall_score is a GENERATED column - handle it below by setting skills
         if (typeof args.is_linchpin === "boolean") updates.is_linchpin = args.is_linchpin;
         if (args.aliases) updates.aliases = args.aliases;
         if (args.notes !== undefined) updates.notes = args.notes;
 
-        // Recalculate overall if individual skills changed but overall wasn't set
-        if (typeof args.overall_score !== "number" &&
-            (typeof args.shooting === "number" || typeof args.passing === "number" ||
-             typeof args.ball_control === "number" || typeof args.playmaking === "number" ||
-             typeof args.defending === "number" || typeof args.fitness === "number")) {
-          const newSkills = {
-            shooting: (args.shooting as number) ?? player.shooting,
-            passing: (args.passing as number) ?? player.passing,
-            ball_control: (args.ball_control as number) ?? player.ball_control,
-            playmaking: (args.playmaking as number) ?? player.playmaking,
-            defending: (args.defending as number) ?? player.defending,
-            fitness: (args.fitness as number) ?? player.fitness,
-          };
-          updates.overall_score = Math.round(
-            ((newSkills.shooting + newSkills.passing + newSkills.ball_control +
-              newSkills.playmaking + newSkills.defending + newSkills.fitness) / 6) * 10
-          );
+        // If user wants to set overall_score directly, convert to skill values
+        // (overall_score is a generated column, can't be set directly)
+        if (typeof args.overall_score === "number") {
+          const targetSkill = Math.round((args.overall_score as number) / 10);
+          const clampedSkill = Math.max(1, Math.min(10, targetSkill));
+          // Only set skills that weren't explicitly provided
+          if (typeof args.shooting !== "number") updates.shooting = clampedSkill;
+          if (typeof args.passing !== "number") updates.passing = clampedSkill;
+          if (typeof args.ball_control !== "number") updates.ball_control = clampedSkill;
+          if (typeof args.playmaking !== "number") updates.playmaking = clampedSkill;
+          if (typeof args.defending !== "number") updates.defending = clampedSkill;
+          if (typeof args.fitness !== "number") updates.fitness = clampedSkill;
         }
 
         updates.updated_at = new Date().toISOString();
@@ -675,24 +684,36 @@ async function executeFunction(
         }
 
         const formattedPlayers = playersToAdd.map(p => {
-          const skills = {
-            shooting: p.shooting ?? 5,
-            passing: p.passing ?? 5,
-            ball_control: p.ball_control ?? 5,
-            playmaking: p.playmaking ?? 5,
-            defending: p.defending ?? 5,
-            fitness: p.fitness ?? 5,
-          };
+          // If overall_score provided, derive skills from it
+          let skills: Record<string, number>;
+          if (p.overall_score !== undefined && p.overall_score !== null) {
+            const targetSkill = Math.round(p.overall_score / 10);
+            const clampedSkill = Math.max(1, Math.min(10, targetSkill));
+            skills = {
+              shooting: p.shooting ?? clampedSkill,
+              passing: p.passing ?? clampedSkill,
+              ball_control: p.ball_control ?? clampedSkill,
+              playmaking: p.playmaking ?? clampedSkill,
+              defending: p.defending ?? clampedSkill,
+              fitness: p.fitness ?? clampedSkill,
+            };
+          } else {
+            skills = {
+              shooting: p.shooting ?? 5,
+              passing: p.passing ?? 5,
+              ball_control: p.ball_control ?? 5,
+              playmaking: p.playmaking ?? 5,
+              defending: p.defending ?? 5,
+              fitness: p.fitness ?? 5,
+            };
+          }
 
+          // Note: overall_score is GENERATED - don't include it!
           return {
             name: p.name,
             status: p.status || "regular",
             preferred_position: p.preferred_position || "everywhere",
             ...skills,
-            overall_score: p.overall_score ?? Math.round(
-              ((skills.shooting + skills.passing + skills.ball_control +
-                skills.playmaking + skills.defending + skills.fitness) / 6) * 10
-            ),
             is_linchpin: p.is_linchpin || false,
             aliases: [],
             notes: p.notes || null,

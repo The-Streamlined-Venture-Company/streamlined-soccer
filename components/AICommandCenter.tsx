@@ -129,16 +129,13 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
       if (shouldAssignToField && (imageToProcess || looksLikePlayerList(trimmedInput))) {
         let playerNames: string[] = [];
 
+        // Use AI to parse both images AND text lists
+        // AI extracts first names, handles various formats, limits to 12 players
         if (imageToProcess) {
           playerNames = await parsePlayerNamesWithAI(undefined, imageToProcess.base64, imageToProcess.mimeType);
         } else {
-          const lines = trimmedInput.split(/[\n,]/).map(l => l.trim()).filter(l => l && l.length < 30);
-          playerNames = lines.map(name => {
-            return name
-              .replace(/^\d+[\.\)\-\s]+/, '')
-              .replace(/^[-•*]\s*/, '')
-              .trim();
-          }).filter(n => n);
+          // Use AI to intelligently extract player names from text
+          playerNames = await parsePlayerNamesWithAI(trimmedInput);
         }
 
         if (playerNames.length > 0 && onAssignToField && findPlayerByName) {
