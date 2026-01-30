@@ -355,23 +355,23 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
         </svg>
       </button>
 
-      {/* Chat panel */}
+      {/* Chat panel - slides in from right */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-50 flex justify-end">
           {/* Backdrop */}
           <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => setIsOpen(false)}
           />
 
-          {/* Chat window */}
+          {/* Chat window - right side panel */}
           <div
             ref={dropZoneRef}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
-            className={`relative w-full sm:max-w-lg h-[85vh] sm:h-[600px] bg-slate-900 sm:rounded-2xl border border-slate-700/50 shadow-2xl flex flex-col overflow-hidden transition-all ${
+            className={`relative w-full max-w-md h-full bg-slate-900 border-l border-slate-700/50 shadow-2xl flex flex-col overflow-hidden transition-all ${
               isDragging ? 'ring-2 ring-emerald-500 border-emerald-500' : ''
             }`}
           >
