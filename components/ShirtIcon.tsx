@@ -1,6 +1,8 @@
 
 import React from 'react';
 
+// Jersey icon based on design by RAHMAT DWI CAHYO from Noun Project
+
 interface ShirtIconProps {
   color: 'black' | 'white';
   className?: string;
@@ -8,47 +10,35 @@ interface ShirtIconProps {
 
 const ShirtIcon: React.FC<ShirtIconProps> = ({ color, className = "w-16 h-16" }) => {
   const isBlack = color === 'black';
-  const primaryFill = isBlack ? '#1a1a1a' : '#ffffff';
-  const secondaryFill = isBlack ? '#333333' : '#f0f0f0';
-  const accentStroke = isBlack ? '#444444' : '#e0e0e0';
+  const fillColor = isBlack ? '#1a1a1a' : '#ffffff';
+  const strokeColor = isBlack ? '#333' : '#ccc';
 
   return (
-    <svg 
-      viewBox="0 0 100 100" 
+    <svg
+      viewBox="0 0 100 110"
       className={`${className} transition-all duration-300`}
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <linearGradient id={`grad-${color}`} x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: primaryFill, stopOpacity: 1 }} />
-          <stop offset="100%" style={{ stopColor: isBlack ? '#000000' : '#e6e6e6', stopOpacity: 1 }} />
+        <linearGradient id={`jersey-grad-${color}`} x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor={isBlack ? '#2a2a2a' : '#ffffff'} />
+          <stop offset="100%" stopColor={isBlack ? '#0f0f0f' : '#e5e5e5'} />
         </linearGradient>
       </defs>
 
-      {/* Main Body of Jersey */}
-      <path 
-        d="M25 25 L15 35 L15 50 L25 55 L25 85 L75 85 L75 55 L85 50 L85 35 L75 25 Z" 
-        fill={`url(#grad-${color})`}
-        stroke={accentStroke} 
-        strokeWidth="1.5"
-        strokeLinejoin="round"
+      {/* Main jersey shape */}
+      <path
+        d="m58.859 7.4062h-0.023437c-0.046876-0.007812-0.085938-0.027344-0.13281-0.027344-0.42969 0-0.78125 0.35156-0.78125 0.78125 0 2.2344-3.6289 4.1211-7.9219 4.1211-4.1641 0-7.6719-1.7773-7.8867-3.9219 0.027344-0.097656 0.035157-0.20312 0.019531-0.3125-0.054687-0.39062-0.39062-0.66016-0.77344-0.65625-0.023437 0-0.042969-0.015625-0.066406-0.015625-0.015625 0-0.023438 0.007812-0.039063 0.007812h-0.003906c-16.434 2.3203-27.91 10.695-27.91 20.371v20.18c0 0.42969 0.35156 0.78125 0.78125 0.78125h12.672v43.121c0 0.42969 0.35156 0.78125 0.78125 0.78125h44.852c0.42969 0 0.78125-0.35156 0.78125-0.78125v-43.121h12.672c0.42969 0 0.78125-0.35156 0.78125-0.78125v-20.18c0-9.6523-11.434-18.02-27.801-20.348zm-43.957 39.746v-1.0586h11.891v1.0586zm56.742 43.902h-43.289v-51.715c0-0.42969-0.35156-0.78125-0.78125-0.78125-0.42969 0-0.78125 0.35156-0.78125 0.78125v5.1914h-11.891v-16.777c0-8.5742 10.777-16.344 25.734-18.68 0.71094 2.7383 4.5625 4.7734 9.3633 4.7734 4.7969 0 8.6484-2.0352 9.3555-4.7734 14.953 2.3203 25.742 10.102 25.742 18.68v16.777h-11.891v-5.1914c0-0.42969-0.35156-0.78125-0.78125-0.78125-0.42969 0-0.78125 0.35156-0.78125 0.78125zm1.5625-43.902v-1.0586h11.891v1.0586z"
+        fill={`url(#jersey-grad-${color})`}
+        stroke={strokeColor}
+        strokeWidth="0.5"
       />
-      
-      {/* Sleeve Trim */}
-      <path d="M15 45 L25 50 M85 45 L75 50" stroke={accentStroke} strokeWidth="2" opacity="0.3" />
 
-      {/* Modern Collar Detail */}
-      <path 
-        d="M40 25 C40 25 45 35 50 35 C55 35 60 25 60 25" 
-        fill="none" 
-        stroke={isBlack ? "#555" : "#ccc"} 
-        strokeWidth="2" 
-        strokeLinecap="round"
+      {/* Badge circle */}
+      <path
+        d="m35.938 24.219c-3.0156 0-5.4688 2.4531-5.4688 5.4688s2.4531 5.4688 5.4688 5.4688 5.4688-2.4531 5.4688-5.4688-2.4531-5.4688-5.4688-5.4688zm0 9.375c-2.1523 0-3.9062-1.7539-3.9062-3.9062s1.7539-3.9062 3.9062-3.9062 3.9062 1.7539 3.9062 3.9062-1.7539 3.9062-3.9062 3.9062z"
+        fill={strokeColor}
       />
-      
-      {/* Side Stripe Detail */}
-      <path d="M28 60 L28 80" stroke={isBlack ? "#333" : "#ddd"} strokeWidth="1" />
-      <path d="M72 60 L72 80" stroke={isBlack ? "#333" : "#ddd"} strokeWidth="1" />
     </svg>
   );
 };
