@@ -173,10 +173,13 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
       // Check if a player was added and fetch their data for skill editing
       if (isAddingPlayer && result.response?.toLowerCase().includes('added')) {
         // Try various patterns to extract the player name from response
-        const nameMatch = result.response.match(/added\s+(\w+)/i) ||
-                         result.response.match(/Added[^:]*:\s*([^\n,]+)/i) ||
-                         result.response.match(/player\s+(\w+)\s+has\s+been/i) ||
-                         result.response.match(/player[:\s]+([^\n,\(]+)/i);
+        // "added player Mo Test with" -> "Mo Test"
+        // "added Mo with" -> "Mo"
+        // "player Mo Test has been added" -> "Mo Test"
+        const nameMatch = result.response.match(/added\s+player\s+(.+?)\s+with/i) ||
+                         result.response.match(/added\s+(.+?)\s+with/i) ||
+                         result.response.match(/player\s+(.+?)\s+has\s+been/i) ||
+                         result.response.match(/Added[^:]*:\s*([^\n,]+)/i);
 
         if (nameMatch && supabase) {
           const playerName = nameMatch[1].trim();
