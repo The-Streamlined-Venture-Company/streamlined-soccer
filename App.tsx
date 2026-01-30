@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import { Player, AIPlayerResult } from './types';
 import Pitch from './components/Pitch';
 import PlayerNode from './components/PlayerNode';
-import AICommandBar from './components/AICommandBar';
+import AICommandCenter from './components/AICommandCenter';
 import Auth, { PasswordReset } from './components/Auth';
 import PlayerManager from './components/admin/PlayerManager';
 import { useAuth } from './contexts/AuthContext';
@@ -326,15 +326,8 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {!hideUI && isAuthenticated && (
+      {!hideUI && (
         <section className="w-full max-w-4xl space-y-6">
-          {/* AI Command Bar */}
-          <AICommandBar
-            onPlayersUpdated={refreshPlayers}
-            onAssignToField={handleAIPlayers}
-            findPlayerByName={findPlayerByName}
-          />
-
           {/* Reset button */}
           <button
             onClick={handleReset}
@@ -343,6 +336,15 @@ const App: React.FC = () => {
             Reset Pitch
           </button>
         </section>
+      )}
+
+      {/* Floating AI Command Center */}
+      {isAuthenticated && (
+        <AICommandCenter
+          onPlayersUpdated={refreshPlayers}
+          onAssignToField={handleAIPlayers}
+          findPlayerByName={findPlayerByName}
+        />
       )}
 
       {!hideUI && (

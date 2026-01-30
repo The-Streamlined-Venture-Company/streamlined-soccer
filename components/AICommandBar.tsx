@@ -161,12 +161,12 @@ const AICommandBar: React.FC<AICommandBarProps> = ({
         if (playerNames.length > 0 && onAssignToField && findPlayerByName) {
           const balanced = balanceTeams(playerNames, findPlayerByName);
           const allPlayers: AIPlayerResult[] = [
-            ...balanced.black.players.map(name => ({ name, team: 'black' as const })),
-            ...balanced.white.players.map(name => ({ name, team: 'white' as const })),
+            ...balanced.black.map(p => ({ name: p.name, team: 'black' as const })),
+            ...balanced.white.map(p => ({ name: p.name, team: 'white' as const })),
           ];
           onAssignToField(allPlayers);
 
-          setResponse(`✓ ${playerNames.length} players assigned • Black ${balanced.black.totalScore} vs White ${balanced.white.totalScore}`);
+          setResponse(`✓ ${playerNames.length} players assigned • Black ${balanced.blackTotal} vs White ${balanced.whiteTotal}`);
           if (onPlayersUpdated) onPlayersUpdated();
           setIsLoading(false);
           return;
