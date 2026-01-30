@@ -1,9 +1,8 @@
 
 import React, { useState, useCallback, useRef } from 'react';
-import { Player, TeamColor, AIPlayerResult } from './types';
+import { Player, AIPlayerResult } from './types';
 import Pitch from './components/Pitch';
 import PlayerNode from './components/PlayerNode';
-import AIImporter from './components/AIImporter';
 import AICommandCenter from './components/AICommandCenter';
 import Auth, { PasswordReset } from './components/Auth';
 import PlayerManager from './components/admin/PlayerManager';
@@ -160,9 +159,6 @@ const App: React.FC = () => {
   const handleReset = () => {
     if (window.confirm('Reset pitch?')) setPitchPlayers(INITIAL_PLAYERS);
   };
-
-  const totalRating = (team: TeamColor) =>
-    pitchPlayers.filter(p => p.team === team && p.name).reduce((acc, p) => acc + (p.rating || 0), 0);
 
   // Show loading while checking auth
   if (isAuthLoading) {
@@ -331,68 +327,12 @@ const App: React.FC = () => {
       </main>
 
       {!hideUI && (
-        <section className="w-full max-w-4xl space-y-8">
-          <AIImporter onPlayersFound={handleAIPlayers} findPlayerByName={findPlayerByName} />
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="bg-slate-900/80 p-6 rounded-3xl border border-white/5 shadow-xl relative overflow-hidden">
-              <h3 className="text-xl font-black mb-6 text-white flex items-center justify-between uppercase italic tracking-tighter relative z-10">
-                <div className="flex items-center gap-3">
-                  <span className="w-4 h-4 bg-black rounded-full ring-2 ring-emerald-500/50"></span>
-                  Squad Black
-                </div>
-                {showRatings && <span className="text-xs text-emerald-400 font-mono tracking-normal">PWR: {totalRating('black')}</span>}
-              </h3>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-6">
-                {pitchPlayers.filter(p => p.team === 'black').map(player => (
-                  <div key={player.id} className="flex flex-col group">
-                    <label className="text-[10px] text-slate-500 font-black uppercase mb-1.5 tracking-widest flex justify-between">
-                      <span>Slot {player.id}</span>
-                      {showRatings && player.rating && <span className="text-emerald-500/60">{player.rating}</span>}
-                    </label>
-                    <input
-                      value={player.name}
-                      placeholder="Name..."
-                      onChange={(e) => updatePlayerName(player.id, e.target.value)}
-                      className="bg-slate-950 border-2 border-slate-800 rounded-xl p-3 text-sm font-bold text-white focus:border-emerald-500/50 transition-all focus:outline-none"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-slate-900/80 p-6 rounded-3xl border border-white/5 shadow-xl relative overflow-hidden">
-              <h3 className="text-xl font-black mb-6 text-white flex items-center justify-between uppercase italic tracking-tighter relative z-10">
-                <div className="flex items-center gap-3">
-                  <span className="w-4 h-4 bg-white rounded-full ring-2 ring-emerald-500/50"></span>
-                  Squad White
-                </div>
-                {showRatings && <span className="text-xs text-emerald-400 font-mono tracking-normal">PWR: {totalRating('white')}</span>}
-              </h3>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-6">
-                {pitchPlayers.filter(p => p.team === 'white').map(player => (
-                  <div key={player.id} className="flex flex-col group">
-                    <label className="text-[10px] text-slate-500 font-black uppercase mb-1.5 tracking-widest flex justify-between">
-                      <span>Slot {player.id}</span>
-                      {showRatings && player.rating && <span className="text-emerald-500/60">{player.rating}</span>}
-                    </label>
-                    <input
-                      value={player.name}
-                      placeholder="Name..."
-                      onChange={(e) => updatePlayerName(player.id, e.target.value)}
-                      className="bg-slate-950 border-2 border-slate-800 rounded-xl p-3 text-sm font-bold text-white focus:border-emerald-500/50 transition-all focus:outline-none"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
+        <section className="w-full max-w-4xl">
           <button
             onClick={handleReset}
             className="w-full py-4 border-2 border-dashed border-slate-800 rounded-3xl text-slate-700 text-[10px] font-black uppercase tracking-[0.4em] hover:bg-red-500/5 hover:border-red-500/20 hover:text-red-500 transition-all"
           >
-            Purge Pitch Data
+            Reset Pitch
           </button>
         </section>
       )}
@@ -404,7 +344,13 @@ const App: React.FC = () => {
       )}
 
       {/* AI Command Center - floating chat */}
-      {isAuthenticated && <AICommandCenter onPlayersUpdated={refreshPlayers} />}
+      {isAuthenticated && (
+        <AICommandCenter
+          onPlayersUpdated={refreshPlayers}
+          onAssignToField={handleAIPlayers}
+          findPlayerByName={findPlayerByName}
+        />
+      )}
     </div>
   );
 };

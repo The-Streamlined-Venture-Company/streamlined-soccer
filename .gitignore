@@ -38,3 +38,4 @@ ss-and-logs/
 *.png
 *.csv
 .mcp.json
+supabase/.temp/
