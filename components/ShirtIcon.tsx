@@ -1,7 +1,7 @@
 
 import React from 'react';
 
-// Jersey icon based on design by Riand from Noun Project
+// Jersey icon based on design by Berkah Icon from Noun Project
 
 interface ShirtIconProps {
   color: 'black' | 'white';
@@ -11,29 +11,23 @@ interface ShirtIconProps {
 const ShirtIcon: React.FC<ShirtIconProps> = ({ color, className = "w-16 h-16" }) => {
   const isBlack = color === 'black';
   const fillColor = isBlack ? '#1a1a1a' : '#ffffff';
-  const strokeColor = isBlack ? 'none' : '#999';
-  const strokeWidth = isBlack ? 0 : 0.5;
+  const strokeColor = isBlack ? 'none' : '#888';
+  const strokeWidth = isBlack ? 0 : 1.5;
 
   return (
     <svg
-      viewBox="0 0 32 32"
+      viewBox="0 0 100 110"
       className={`${className} transition-all duration-300`}
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Collar triangle */}
-      <polygon
-        points="16 7.56 14.33 4.5 17.67 4.5 16 7.56"
-        fill={fillColor}
-        stroke={strokeColor}
-        strokeWidth={strokeWidth}
-      />
-      {/* Main jersey body */}
-      <path
-        d="M29.16,10.29l-2.83,4a.51.51,0,0,1-.41.21.52.52,0,0,1-.29-.09L23.58,13V27a.5.5,0,0,1-.5.5H8.92a.5.5,0,0,1-.5-.5V13l-2,1.45a.52.52,0,0,1-.29.09.51.51,0,0,1-.41-.21l-2.83-4a.51.51,0,0,1,.08-.67l5.67-5,.06,0,.09,0a.35.35,0,0,1,.11,0h4.34l2.37,4.34a.49.49,0,0,0,.88,0L18.81,4.5h4.34a.35.35,0,0,1,.11,0l.09,0,.06,0,5.67,5A.51.51,0,0,1,29.16,10.29Z"
-        fill={fillColor}
-        stroke={strokeColor}
-        strokeWidth={strokeWidth}
-      />
+      <g fill={fillColor} stroke={strokeColor} strokeWidth={strokeWidth}>
+        {/* Left sleeve */}
+        <path d="m0 35.938 18.75 14.062v-16.68l-10.012-13.766z" />
+        {/* Right sleeve */}
+        <path d="m91.262 19.555-10.012 13.766v16.547l18.75-13.93z" />
+        {/* Main body */}
+        <path d="m88.805 14.949c-0.83203-1.5586-2.2852-2.6953-4-3.1211l-22.309-5.5781c0 6.9023-5.5977 12.5-12.5 12.5s-12.5-5.5977-12.5-12.5l-22.309 5.5781c-1.7148 0.42969-3.168 1.5625-4 3.1211l-0.82031 1.5391 11.203 15.406c0.19531 0.26562 0.29688 0.58984 0.29688 0.92188v60.938h56.25l0.007812-60.941c0-0.33203 0.10547-0.65234 0.29688-0.92188l11.203-15.406-0.82031-1.5391zm-51.305 72.551h-9.375v-6.25h9.375zm26.562-48.438c-2.5898 0-4.6875-2.0977-4.6875-4.6875s2.0977-4.6875 4.6875-4.6875 4.6875 2.0977 4.6875 4.6875-2.0977 4.6875-4.6875 4.6875z" />
+      </g>
     </svg>
   );
 };
