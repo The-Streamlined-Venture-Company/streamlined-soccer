@@ -33,3 +33,8 @@ ss-and-logs/
 
 # Vercel
 .vercel
+
+# Local files
+*.png
+*.csv
+.mcp.json

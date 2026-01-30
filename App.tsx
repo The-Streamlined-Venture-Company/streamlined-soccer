@@ -61,14 +61,45 @@ const App: React.FC = () => {
   // Player database hook
   const { getRatingForName, findPlayerByName } = usePlayers();
 
-  // Drag and drop hook
-  const { handleDragStart } = useDragAndDrop({
+  // Swap players (exchange names, ratings, and positions)
+  const handleSwapPlayers = useCallback((id1: string, id2: string) => {
+    setPitchPlayers(prev => {
+      const player1 = prev.find(p => p.id === id1);
+      const player2 = prev.find(p => p.id === id2);
+      if (!player1 || !player2) return prev;
+
+      return prev.map(p => {
+        if (p.id === id1) {
+          return {
+            ...p,
+            name: player2.name,
+            rating: player2.rating,
+            position: player2.position,
+          };
+        }
+        if (p.id === id2) {
+          return {
+            ...p,
+            name: player1.name,
+            rating: player1.rating,
+            position: player1.position,
+          };
+        }
+        return p;
+      });
+    });
+  }, []);
+
+  // Drag and drop hook with swap support
+  const { handleDragStart, draggedId, dropTargetId } = useDragAndDrop({
     pitchRef,
+    players: pitchPlayers,
     onPositionUpdate: (id, x, y) => {
       setPitchPlayers(prev => prev.map(p =>
         p.id === id ? { ...p, position: { x, y } } : p
       ));
     },
+    onSwapPlayers: handleSwapPlayers,
   });
 
   // Image export hook
@@ -274,6 +305,8 @@ const App: React.FC = () => {
               onUpdateName={updatePlayerName}
               onDragStart={handleDragStart}
               showRatings={showRatings}
+              isBeingDragged={draggedId === player.id}
+              isDropTarget={dropTargetId === player.id}
             />
           ))}
 
