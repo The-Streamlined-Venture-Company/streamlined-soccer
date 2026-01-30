@@ -59,7 +59,17 @@ const App: React.FC = () => {
   const { canEditPlayers, isAuthenticated, isPasswordRecovery, clearPasswordRecovery, isLoading: isAuthLoading } = useAuth();
 
   // Player database hook
-  const { getRatingForName, findPlayerByName } = usePlayers();
+  const { getRatingForName, findPlayerByName, players: dbPlayers } = usePlayers();
+
+  // Autocomplete suggestions from database
+  const getSuggestions = useCallback((query: string) => {
+    if (!query || query.length < 1) return [];
+    const lowerQuery = query.toLowerCase();
+    return dbPlayers
+      .filter(p => p.name.toLowerCase().includes(lowerQuery))
+      .map(p => ({ name: p.name, rating: p.overall_score }))
+      .slice(0, 5);
+  }, [dbPlayers]);
 
   // Swap players (exchange names and ratings only - position and team color are fixed to slots)
   const handleSwapPlayers = useCallback((id1: string, id2: string) => {
@@ -291,6 +301,7 @@ const App: React.FC = () => {
               isBeingDragged={draggedId === player.id}
               isDropTarget={dropTargetId === player.id}
               dragPosition={draggedId === player.id ? dragPosition : null}
+              getSuggestions={getSuggestions}
             />
           ))}
 

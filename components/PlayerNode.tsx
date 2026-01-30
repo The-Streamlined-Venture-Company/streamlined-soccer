@@ -8,6 +8,11 @@ interface DragPosition {
   y: number;
 }
 
+interface Suggestion {
+  name: string;
+  rating?: number;
+}
+
 interface PlayerNodeProps {
   player: Player;
   onUpdateName: (id: string, newName: string) => void;
@@ -16,6 +21,7 @@ interface PlayerNodeProps {
   isBeingDragged?: boolean;
   isDropTarget?: boolean;
   dragPosition?: DragPosition | null;
+  getSuggestions?: (query: string) => Suggestion[];
 }
 
 const PlayerNode: React.FC<PlayerNodeProps> = ({
@@ -26,10 +32,14 @@ const PlayerNode: React.FC<PlayerNodeProps> = ({
   isBeingDragged = false,
   isDropTarget = false,
   dragPosition = null,
+  getSuggestions,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(player.name);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -45,24 +55,70 @@ const PlayerNode: React.FC<PlayerNodeProps> = ({
     }
   }, [player.name, isEditing]);
 
+  // Update suggestions when edit value changes
+  useEffect(() => {
+    if (isEditing && editValue && getSuggestions) {
+      const matches = getSuggestions(editValue);
+      setSuggestions(matches.slice(0, 5)); // Limit to 5 suggestions
+      setSelectedIndex(-1);
+    } else {
+      setSuggestions([]);
+    }
+  }, [editValue, isEditing, getSuggestions]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        handleSubmit();
+      }
+    };
+    if (isEditing) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isEditing, editValue]);
+
   const handleSubmit = () => {
     onUpdateName(player.id, editValue);
     setIsEditing(false);
+    setSuggestions([]);
+  };
+
+  const handleSelectSuggestion = (name: string) => {
+    setEditValue(name);
+    onUpdateName(player.id, name);
+    setIsEditing(false);
+    setSuggestions([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSubmit();
-    if (e.key === 'Escape') {
-      setEditValue(player.name);
-      setIsEditing(false);
+    if (suggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex(prev => Math.min(prev + 1, suggestions.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex(prev => Math.max(prev - 1, -1));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (selectedIndex >= 0) {
+          handleSelectSuggestion(suggestions[selectedIndex].name);
+        } else {
+          handleSubmit();
+        }
+      } else if (e.key === 'Escape') {
+        setEditValue(player.name);
+        setIsEditing(false);
+        setSuggestions([]);
+      }
+    } else {
+      if (e.key === 'Enter') handleSubmit();
+      if (e.key === 'Escape') {
+        setEditValue(player.name);
+        setIsEditing(false);
+      }
     }
-  };
-
-  const getRatingColor = (rating?: number) => {
-    if (!rating) return 'bg-slate-700';
-    if (rating >= 85) return 'bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]';
-    if (rating >= 75) return 'bg-emerald-500';
-    return 'bg-blue-500';
   };
 
   // Calculate display position - use drag position if being dragged, otherwise fixed position
@@ -97,6 +153,8 @@ const PlayerNode: React.FC<PlayerNodeProps> = ({
             ? 'z-50 pointer-events-none'
             : isDropTarget
             ? 'z-40'
+            : isEditing
+            ? 'z-[100]'
             : 'z-20'
         }`}
         style={{
@@ -168,17 +226,41 @@ const PlayerNode: React.FC<PlayerNodeProps> = ({
           )}
         </div>
 
-        <div className="mt-1 flex flex-col items-center w-full z-30">
+        <div className="mt-1 flex flex-col items-center w-full z-30" ref={containerRef}>
           {isEditing ? (
-            <input
-              ref={inputRef}
-              type="text"
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onBlur={handleSubmit}
-              onKeyDown={handleKeyDown}
-              className="bg-black text-white text-center rounded-lg px-3 py-1 text-base md:text-xl font-black border-2 border-emerald-400 shadow-[0_0_30px_rgba(52,211,153,0.6)] focus:outline-none min-w-[100px]"
-            />
+            <div className="relative">
+              <input
+                ref={inputRef}
+                type="text"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="bg-black text-white text-center rounded-lg px-3 py-1 text-base md:text-xl font-black border-2 border-emerald-400 shadow-[0_0_30px_rgba(52,211,153,0.6)] focus:outline-none min-w-[120px]"
+                placeholder="Name..."
+              />
+              {/* Autocomplete dropdown */}
+              {suggestions.length > 0 && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-slate-900 border border-emerald-500/30 rounded-lg shadow-2xl overflow-hidden min-w-[150px] z-50">
+                  {suggestions.map((suggestion, index) => (
+                    <button
+                      key={suggestion.name}
+                      type="button"
+                      onClick={() => handleSelectSuggestion(suggestion.name)}
+                      className={`w-full px-3 py-2 text-left text-sm font-bold flex items-center justify-between gap-2 transition-colors ${
+                        index === selectedIndex
+                          ? 'bg-emerald-500/30 text-emerald-300'
+                          : 'text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      <span className="truncate">{suggestion.name}</span>
+                      {suggestion.rating && (
+                        <span className="text-xs text-slate-400">{suggestion.rating}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           ) : (
             <div
               onClick={(e) => {
