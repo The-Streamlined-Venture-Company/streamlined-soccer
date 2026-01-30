@@ -7,11 +7,17 @@ interface UseDragAndDropOptions {
   onSwapPlayers: (id1: string, id2: string) => void;
 }
 
+interface DragPosition {
+  x: number;
+  y: number;
+}
+
 interface UseDragAndDropReturn {
   handleDragStart: (id: string, e: React.MouseEvent | React.TouchEvent) => void;
   isDragging: boolean;
   draggedId: string | null;
   dropTargetId: string | null;
+  dragPosition: DragPosition | null;
 }
 
 // Distance threshold for detecting swap (percentage of pitch)
@@ -25,6 +31,8 @@ export function useDragAndDrop({
   const [isDragging, setIsDragging] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<DragPosition | null>(null);
+
   const draggedIdRef = useRef<string | null>(null);
   const dropTargetIdRef = useRef<string | null>(null);
 
@@ -50,10 +58,20 @@ export function useDragAndDrop({
   const handleDragStart = useCallback((id: string, e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
 
-    console.log('[DragDrop] Drag started:', id);
+    if (!pitchRef.current) return;
+
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    // Calculate initial position as percentage
+    const pitchRect = pitchRef.current.getBoundingClientRect();
+    const x = ((clientX - pitchRect.left) / pitchRect.width) * 100;
+    const y = ((clientY - pitchRect.top) / pitchRect.height) * 100;
+
     draggedIdRef.current = id;
     setIsDragging(true);
     setDraggedId(id);
+    setDragPosition({ x, y });
 
     // Add haptic feedback on mobile if available
     if ('vibrate' in navigator) {
@@ -71,15 +89,15 @@ export function useDragAndDrop({
         ? moveEvent.touches[0].clientY
         : (moveEvent as MouseEvent).clientY;
 
-      const pitchRect = pitchRef.current.getBoundingClientRect();
-      const x = ((moveClientX - pitchRect.left) / pitchRect.width) * 100;
-      const y = ((moveClientY - pitchRect.top) / pitchRect.height) * 100;
+      const rect = pitchRef.current.getBoundingClientRect();
+      const newX = ((moveClientX - rect.left) / rect.width) * 100;
+      const newY = ((moveClientY - rect.top) / rect.height) * 100;
+
+      // Update drag position for visual feedback
+      setDragPosition({ x: newX, y: newY });
 
       // Check for potential swap target
-      const targetId = findClosestPlayer(x, y, draggedIdRef.current);
-      if (targetId !== dropTargetIdRef.current) {
-        console.log('[DragDrop] Drop target changed:', targetId, 'at position:', { x: x.toFixed(1), y: y.toFixed(1) });
-      }
+      const targetId = findClosestPlayer(newX, newY, draggedIdRef.current);
       dropTargetIdRef.current = targetId;
       setDropTargetId(targetId);
     };
@@ -88,19 +106,14 @@ export function useDragAndDrop({
       const currentDragId = draggedIdRef.current;
       const currentDropTarget = dropTargetIdRef.current;
 
-      console.log('[DragDrop] Drag ended. Dragged:', currentDragId, 'Target:', currentDropTarget);
-
       // If we have a drop target, swap the players
       if (currentDragId && currentDropTarget) {
-        console.log('[DragDrop] Swapping players:', currentDragId, '<->', currentDropTarget);
         onSwapPlayers(currentDragId, currentDropTarget);
 
         // Haptic feedback on successful swap
         if ('vibrate' in navigator) {
           navigator.vibrate([20, 50, 20]);
         }
-      } else {
-        console.log('[DragDrop] No swap - missing drag or target');
       }
 
       // Reset state
@@ -109,6 +122,7 @@ export function useDragAndDrop({
       setIsDragging(false);
       setDraggedId(null);
       setDropTargetId(null);
+      setDragPosition(null);
 
       // Clean up event listeners
       window.removeEventListener('mousemove', handleMove);
@@ -131,5 +145,6 @@ export function useDragAndDrop({
     isDragging,
     draggedId,
     dropTargetId,
+    dragPosition,
   };
 }
