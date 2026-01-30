@@ -355,26 +355,18 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
         </svg>
       </button>
 
-      {/* Chat panel - slides in from right */}
+      {/* Chat panel - floating at bottom right */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => setIsOpen(false)}
-          />
-
-          {/* Chat window - right side panel */}
-          <div
-            ref={dropZoneRef}
-            onDragEnter={handleDragEnter}
-            onDragLeave={handleDragLeave}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-            className={`relative w-full max-w-md h-full bg-slate-900 border-l border-slate-700/50 shadow-2xl flex flex-col overflow-hidden transition-all ${
-              isDragging ? 'ring-2 ring-emerald-500 border-emerald-500' : ''
-            }`}
-          >
+        <div
+          ref={dropZoneRef}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          className={`fixed bottom-6 right-6 z-50 w-[400px] max-w-[calc(100vw-48px)] h-[500px] max-h-[70vh] bg-slate-900 rounded-2xl border border-slate-700/50 shadow-2xl flex flex-col overflow-hidden transition-all ${
+            isDragging ? 'ring-2 ring-emerald-500 border-emerald-500' : ''
+          }`}
+        >
             {/* Drop overlay */}
             {isDragging && (
               <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-900/95 backdrop-blur-sm">
@@ -591,8 +583,7 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
     </>
   );
 };

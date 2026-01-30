@@ -109,6 +109,10 @@ const tools = [
               type: "number",
               description: "Fitness level 0-10 (default: 5)"
             },
+            overall_score: {
+              type: "number",
+              description: "Overall player rating 0-100. If provided, this overrides the calculated value from skills. When user says 'Add John 75', use 75 as overall_score."
+            },
             is_linchpin: {
               type: "boolean",
               description: "Whether player is a key/linchpin player"
@@ -309,12 +313,16 @@ Player attributes you can manage:
 - notes: Any additional information
 
 When users ask to:
-- "Add [name]" - Add a new player with default stats
+- "Add [name]" - Add a new player with default stats (overall_score: 50)
+- "Add [name] [number]" - Add a new player with that number as overall_score (e.g., "Add Mo 75" means name="Mo", overall_score=75)
+- "Add [name] [number] [position]" - Add player with score and position (e.g., "Add Mo 75 midfield")
 - "Update [name]'s rating to X" - Update overall_score directly
 - "Make [name] a defender" - Update preferred_position
 - "Show all players" - List all players
 - "Who are the best players?" - Get top players by overall_score
 - "Delete [name]" - Delete player (ask for confirmation)
+
+IMPORTANT: When a user says "Add [name] [number]", always interpret the number as the overall_score parameter.
 
 Be helpful, concise, and always confirm destructive actions. If a player name is ambiguous, ask for clarification or show matching results.
 
