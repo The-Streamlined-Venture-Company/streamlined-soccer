@@ -3,7 +3,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import { Player, AIPlayerResult } from './types';
 import Pitch from './components/Pitch';
 import PlayerNode from './components/PlayerNode';
-import AICommandCenter from './components/AICommandCenter';
+import AICommandBar from './components/AICommandBar';
 import Auth, { PasswordReset } from './components/Auth';
 import PlayerManager from './components/admin/PlayerManager';
 import { useAuth } from './contexts/AuthContext';
@@ -287,7 +287,7 @@ const App: React.FC = () => {
       )}
 
       <main
-        className={`relative w-full transition-all duration-500 ${hideUI ? 'max-w-none h-screen' : 'max-w-4xl aspect-[4/5] md:aspect-[4/3] shadow-2xl mb-12'}`}
+        className={`relative w-full transition-all duration-500 ${hideUI ? 'max-w-none h-screen' : 'max-w-4xl aspect-[4/5] md:aspect-[4/3] shadow-2xl mb-8'}`}
         ref={pitchRef}
       >
         <Pitch>
@@ -326,11 +326,19 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {!hideUI && (
-        <section className="w-full max-w-4xl">
+      {!hideUI && isAuthenticated && (
+        <section className="w-full max-w-4xl space-y-6">
+          {/* AI Command Bar */}
+          <AICommandBar
+            onPlayersUpdated={refreshPlayers}
+            onAssignToField={handleAIPlayers}
+            findPlayerByName={findPlayerByName}
+          />
+
+          {/* Reset button */}
           <button
             onClick={handleReset}
-            className="w-full py-4 border-2 border-dashed border-slate-800 rounded-3xl text-slate-700 text-[10px] font-black uppercase tracking-[0.4em] hover:bg-red-500/5 hover:border-red-500/20 hover:text-red-500 transition-all"
+            className="w-full py-3 border border-dashed border-slate-800 rounded-2xl text-slate-700 text-[10px] font-black uppercase tracking-[0.3em] hover:bg-red-500/5 hover:border-red-500/20 hover:text-red-500 transition-all"
           >
             Reset Pitch
           </button>
@@ -338,18 +346,9 @@ const App: React.FC = () => {
       )}
 
       {!hideUI && (
-        <footer className="mt-16 text-slate-600 text-[10px] font-black uppercase tracking-[0.3em] pb-12 opacity-50 text-center">
+        <footer className="mt-12 text-slate-600 text-[10px] font-black uppercase tracking-[0.3em] pb-12 opacity-50 text-center">
           {isAuthenticated ? 'Synced to Cloud' : 'Local Storage Mode'} • Streamlined Soccer
         </footer>
-      )}
-
-      {/* AI Command Center - floating chat */}
-      {isAuthenticated && (
-        <AICommandCenter
-          onPlayersUpdated={refreshPlayers}
-          onAssignToField={handleAIPlayers}
-          findPlayerByName={findPlayerByName}
-        />
       )}
     </div>
   );
