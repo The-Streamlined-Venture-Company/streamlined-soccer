@@ -4,6 +4,7 @@ import { Player, TeamColor, AIPlayerResult } from './types';
 import Pitch from './components/Pitch';
 import PlayerNode from './components/PlayerNode';
 import AIImporter from './components/AIImporter';
+import AICommandCenter from './components/AICommandCenter';
 import Auth, { PasswordReset } from './components/Auth';
 import PlayerManager from './components/admin/PlayerManager';
 import { useAuth } from './contexts/AuthContext';
@@ -59,7 +60,7 @@ const App: React.FC = () => {
   const { canEditPlayers, isAuthenticated, isPasswordRecovery, clearPasswordRecovery, isLoading: isAuthLoading } = useAuth();
 
   // Player database hook
-  const { getRatingForName, findPlayerByName, players: dbPlayers } = usePlayers();
+  const { getRatingForName, findPlayerByName, players: dbPlayers, refresh: refreshPlayers } = usePlayers();
 
   // Autocomplete suggestions from database
   const getSuggestions = useCallback((query: string) => {
@@ -229,6 +230,9 @@ const App: React.FC = () => {
         <footer className="mt-12 text-slate-600 text-[10px] font-black uppercase tracking-[0.3em] pb-8 opacity-50 text-center">
           Synced to Cloud • Streamlined Soccer
         </footer>
+
+        {/* AI Command Center - floating chat */}
+        {isAuthenticated && <AICommandCenter onPlayersUpdated={refreshPlayers} />}
       </div>
     );
   }
@@ -398,6 +402,9 @@ const App: React.FC = () => {
           {isAuthenticated ? 'Synced to Cloud' : 'Local Storage Mode'} • Streamlined Soccer
         </footer>
       )}
+
+      {/* AI Command Center - floating chat */}
+      {isAuthenticated && <AICommandCenter onPlayersUpdated={refreshPlayers} />}
     </div>
   );
 };
