@@ -61,7 +61,7 @@ const App: React.FC = () => {
   // Player database hook
   const { getRatingForName, findPlayerByName } = usePlayers();
 
-  // Swap players (exchange names, ratings, and positions)
+  // Swap players (exchange names, ratings, and team - positions are fixed slots)
   const handleSwapPlayers = useCallback((id1: string, id2: string) => {
     setPitchPlayers(prev => {
       const player1 = prev.find(p => p.id === id1);
@@ -74,7 +74,7 @@ const App: React.FC = () => {
             ...p,
             name: player2.name,
             rating: player2.rating,
-            position: player2.position,
+            team: player2.team,
           };
         }
         if (p.id === id2) {
@@ -82,7 +82,7 @@ const App: React.FC = () => {
             ...p,
             name: player1.name,
             rating: player1.rating,
-            position: player1.position,
+            team: player1.team,
           };
         }
         return p;
