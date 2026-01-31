@@ -174,7 +174,7 @@ export function usePlayers(): UsePlayersReturn {
       if (useSupabase && supabase) {
         const { data, error: insertError } = await supabase
           .from('players')
-          .insert(playerData)
+          .insert(playerData as never)
           .select()
           .single();
 
@@ -184,8 +184,9 @@ export function usePlayers(): UsePlayersReturn {
           return null;
         }
 
-        setPlayers(prev => [...prev, data]);
-        return data;
+        const newPlayer = data as Player;
+        setPlayers(prev => [...prev, newPlayer]);
+        return newPlayer;
       } else {
         // Local storage mode - need to calculate overall_score manually
         const shooting = player.shooting || 5;
@@ -233,7 +234,7 @@ export function usePlayers(): UsePlayersReturn {
       if (useSupabase && supabase) {
         const { error: updateError } = await supabase
           .from('players')
-          .update(finalUpdates)
+          .update(finalUpdates as never)
           .eq('id', id);
 
         if (updateError) {

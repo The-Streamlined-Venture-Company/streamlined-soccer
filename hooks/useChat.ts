@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 export interface ChatThread {
   id: string;
+  user_id: string;
   title: string;
   created_at: string;
   updated_at: string;
@@ -15,6 +16,17 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   created_at: string;
+}
+
+interface ChatThreadInsert {
+  user_id: string;
+  title?: string;
+}
+
+interface ChatMessageInsert {
+  thread_id: string;
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 export function useChat() {
@@ -37,11 +49,12 @@ export function useChat() {
         .order('updated_at', { ascending: false });
 
       if (error) throw error;
-      setThreads(data || []);
+      const threadData = (data || []) as ChatThread[];
+      setThreads(threadData);
 
       // Auto-select first thread if none selected
-      if (data && data.length > 0 && !activeThreadId) {
-        setActiveThreadId(data[0].id);
+      if (threadData.length > 0 && !activeThreadId) {
+        setActiveThreadId(threadData[0].id);
       }
     } catch (err) {
       console.error('Failed to load threads:', err);
@@ -66,7 +79,7 @@ export function useChat() {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      setMessages(data || []);
+      setMessages((data || []) as ChatMessage[]);
     } catch (err) {
       console.error('Failed to load messages:', err);
     } finally {
@@ -79,21 +92,24 @@ export function useChat() {
     if (!supabase || !user) return null;
 
     try {
+      const insertData: ChatThreadInsert = {
+        user_id: user.id,
+        title: title || 'New Chat',
+      };
+
       const { data, error } = await supabase
         .from('chat_threads')
-        .insert({
-          user_id: user.id,
-          title: title || 'New Chat',
-        })
+        .insert(insertData as never)
         .select()
         .single();
 
       if (error) throw error;
 
-      setThreads(prev => [data, ...prev]);
-      setActiveThreadId(data.id);
+      const newThread = data as ChatThread;
+      setThreads(prev => [newThread, ...prev]);
+      setActiveThreadId(newThread.id);
       setMessages([]);
-      return data.id;
+      return newThread.id;
     } catch (err) {
       console.error('Failed to create thread:', err);
       return null;
@@ -107,7 +123,7 @@ export function useChat() {
     try {
       const { error } = await supabase
         .from('chat_threads')
-        .update({ title, updated_at: new Date().toISOString() })
+        .update({ title, updated_at: new Date().toISOString() } as never)
         .eq('id', threadId);
 
       if (error) throw error;
@@ -149,24 +165,27 @@ export function useChat() {
     if (!supabase || !activeThreadId) return null;
 
     try {
+      const insertData: ChatMessageInsert = {
+        thread_id: activeThreadId,
+        role,
+        content,
+      };
+
       const { data, error } = await supabase
         .from('chat_messages')
-        .insert({
-          thread_id: activeThreadId,
-          role,
-          content,
-        })
+        .insert(insertData as never)
         .select()
         .single();
 
       if (error) throw error;
 
-      setMessages(prev => [...prev, data]);
+      const newMessage = data as ChatMessage;
+      setMessages(prev => [...prev, newMessage]);
 
       // Update thread's updated_at
       await supabase
         .from('chat_threads')
-        .update({ updated_at: new Date().toISOString() })
+        .update({ updated_at: new Date().toISOString() } as never)
         .eq('id', activeThreadId);
 
       // Auto-title thread from first user message
@@ -176,7 +195,7 @@ export function useChat() {
         await updateThreadTitle(activeThreadId, title);
       }
 
-      return data;
+      return newMessage;
     } catch (err) {
       console.error('Failed to add message:', err);
       return null;

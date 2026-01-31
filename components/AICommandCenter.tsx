@@ -211,7 +211,7 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
             .limit(1);
 
           if (players && players.length > 0) {
-            const p = players[0];
+            const p = players[0] as DbPlayer;
             setNewPlayer({
               id: p.id,
               name: p.name,
@@ -258,7 +258,7 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
       .update({
         ...skills,
         updated_at: new Date().toISOString(),
-      })
+      } as never)
       .eq('id', playerId);
 
     if (error) {
