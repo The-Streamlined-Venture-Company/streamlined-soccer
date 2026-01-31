@@ -148,6 +148,7 @@ const App: React.FC = () => {
 
   // Handle export with ratings toggle
   const handleExport = useCallback(async () => {
+    console.log('[App] handleExport called');
     const originalShowRatings = showRatingsRef.current;
     await exportAsImage(
       () => setShowRatings(false),
@@ -158,6 +159,7 @@ const App: React.FC = () => {
 
   // Handle share (WhatsApp etc)
   const handleShare = useCallback(async () => {
+    console.log('[App] handleShare called');
     const originalShowRatings = showRatingsRef.current;
     await shareAsImage(
       () => setShowRatings(false),
@@ -168,6 +170,7 @@ const App: React.FC = () => {
 
   // Handle copy to clipboard
   const handleCopy = useCallback(async () => {
+    console.log('[App] handleCopy called');
     const originalShowRatings = showRatingsRef.current;
     await copyToClipboard(
       () => setShowRatings(false),
