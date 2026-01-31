@@ -6,7 +6,21 @@ import { Player as DbPlayer } from '../types/database';
 import { AIPlayerResult } from '../types';
 import SkillEditor from './SkillEditor';
 import { supabase } from '../lib/supabase';
-import { useChat, ChatThread, ChatMessage } from '../hooks/useChat';
+import { useChat, ChatThread } from '../hooks/useChat';
+
+// Hook to detect mobile viewport
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 640);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  return isMobile;
+};
 
 interface NewPlayerData {
   id: string;
@@ -33,6 +47,7 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
   findPlayerByName,
   onDockChange
 }) => {
+  const isMobile = useIsMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [isDocked, setIsDocked] = useState(() => {
     // Persist dock preference
@@ -42,13 +57,17 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
     return false;
   });
   const [showThreads, setShowThreads] = useState(false);
+  const [sheetHeight, setSheetHeight] = useState(70); // percentage for mobile bottom sheet
+  const dragStartY = useRef<number | null>(null);
+  const dragStartHeight = useRef<number>(70);
 
-  // Notify parent when dock state changes
+  // Notify parent when dock state changes (only on desktop)
   useEffect(() => {
     if (onDockChange) {
-      onDockChange(isOpen && isDocked);
+      // Don't apply docking on mobile
+      onDockChange(isOpen && isDocked && !isMobile);
     }
-  }, [isOpen, isDocked, onDockChange]);
+  }, [isOpen, isDocked, isMobile, onDockChange]);
 
   const toggleDock = () => {
     const newDocked = !isDocked;
@@ -372,21 +391,49 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
     return date.toLocaleDateString();
   };
 
+  // Mobile bottom sheet drag handlers
+  const handleSheetDragStart = useCallback((e: React.TouchEvent) => {
+    dragStartY.current = e.touches[0].clientY;
+    dragStartHeight.current = sheetHeight;
+  }, [sheetHeight]);
+
+  const handleSheetDrag = useCallback((e: React.TouchEvent) => {
+    if (dragStartY.current === null) return;
+
+    const deltaY = dragStartY.current - e.touches[0].clientY;
+    const deltaPercent = (deltaY / window.innerHeight) * 100;
+    const newHeight = Math.min(95, Math.max(20, dragStartHeight.current + deltaPercent));
+    setSheetHeight(newHeight);
+  }, []);
+
+  const handleSheetDragEnd = useCallback(() => {
+    dragStartY.current = null;
+    // Snap to close if dragged below threshold
+    if (sheetHeight < 30) {
+      setIsOpen(false);
+      setSheetHeight(70);
+    } else if (sheetHeight < 50) {
+      setSheetHeight(50);
+    } else if (sheetHeight > 85) {
+      setSheetHeight(95);
+    }
+  }, [sheetHeight]);
+
   return (
     <>
       {/* Toggle button when closed */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 right-6 z-40 w-12 h-12 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white shadow-lg transition-all hover:scale-105 active:scale-95 flex items-center justify-center"
+          className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white shadow-lg transition-all hover:scale-105 active:scale-95 flex items-center justify-center mb-safe touch-target-lg"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
           </svg>
         </button>
       )}
 
-      {/* Side panel */}
+      {/* Side panel (desktop) / Bottom sheet (mobile) */}
       {isOpen && (
         <div
           ref={dropZoneRef}
@@ -394,8 +441,13 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
           onDragLeave={handleDragLeave}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
-          className={`fixed top-0 right-0 z-50 w-full sm:w-96 h-full bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col transition-all ${
+          style={isMobile ? { height: `${sheetHeight}%` } : undefined}
+          className={`fixed z-50 bg-slate-900 shadow-2xl flex flex-col transition-all ${
             isDragging ? 'ring-2 ring-inset ring-emerald-500' : ''
+          } ${
+            isMobile
+              ? 'bottom-0 left-0 right-0 rounded-t-3xl border-t border-slate-700'
+              : 'top-0 right-0 w-96 h-full border-l border-slate-800'
           }`}
         >
           {/* Drop overlay */}
@@ -410,8 +462,20 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
             </div>
           )}
 
+          {/* Mobile drag handle */}
+          {isMobile && (
+            <div
+              className="flex justify-center py-3 cursor-grab active:cursor-grabbing touch-none"
+              onTouchStart={handleSheetDragStart}
+              onTouchMove={handleSheetDrag}
+              onTouchEnd={handleSheetDragEnd}
+            >
+              <div className="w-12 h-1.5 bg-slate-600 rounded-full" />
+            </div>
+          )}
+
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900">
+          <div className={`flex items-center justify-between px-4 ${isMobile ? 'py-2' : 'py-3'} border-b border-slate-800 bg-slate-900`}>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsOpen(false)}
@@ -434,19 +498,22 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
               </button>
             </div>
             <div className="flex items-center gap-1">
-              <button
-                onClick={toggleDock}
-                className={`p-1.5 hover:bg-slate-800 rounded-lg transition-colors ${isDocked ? 'text-emerald-400' : 'text-slate-400 hover:text-white'}`}
-                title={isDocked ? 'Undock panel' : 'Dock to side'}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  {isDocked ? (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
-                  ) : (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-                  )}
-                </svg>
-              </button>
+              {/* Dock button - hidden on mobile */}
+              {!isMobile && (
+                <button
+                  onClick={toggleDock}
+                  className={`p-1.5 hover:bg-slate-800 rounded-lg transition-colors ${isDocked ? 'text-emerald-400' : 'text-slate-400 hover:text-white'}`}
+                  title={isDocked ? 'Undock panel' : 'Dock to side'}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    {isDocked ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                    )}
+                  </svg>
+                </button>
+              )}
               <button
                 onClick={handleNewChat}
                 className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-emerald-400"
@@ -584,7 +651,7 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
           )}
 
           {/* Input */}
-          <div className="p-3 border-t border-slate-800 bg-slate-900">
+          <div className={`p-3 border-t border-slate-800 bg-slate-900 ${isMobile ? 'pb-safe' : ''}`}>
             <div className="flex items-end gap-2">
               <input
                 type="file"

@@ -22,6 +22,7 @@ interface PlayerNodeProps {
   isDropTarget?: boolean;
   dragPosition?: DragPosition | null;
   getSuggestions?: (query: string) => Suggestion[];
+  displayPosition?: { x: number; y: number }; // Override position for display (e.g., portrait mode)
 }
 
 const PlayerNode: React.FC<PlayerNodeProps> = ({
@@ -33,7 +34,10 @@ const PlayerNode: React.FC<PlayerNodeProps> = ({
   isDropTarget = false,
   dragPosition = null,
   getSuggestions,
+  displayPosition,
 }) => {
+  // Use displayPosition if provided, otherwise use player.position
+  const basePosition = displayPosition || player.position;
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(player.name);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -122,8 +126,8 @@ const PlayerNode: React.FC<PlayerNodeProps> = ({
   };
 
   // Calculate display position - use drag position if being dragged, otherwise fixed position
-  const displayX = isBeingDragged && dragPosition ? dragPosition.x : player.position.x;
-  const displayY = isBeingDragged && dragPosition ? dragPosition.y : player.position.y;
+  const displayX = isBeingDragged && dragPosition ? dragPosition.x : basePosition.x;
+  const displayY = isBeingDragged && dragPosition ? dragPosition.y : basePosition.y;
 
   return (
     <>
@@ -132,8 +136,8 @@ const PlayerNode: React.FC<PlayerNodeProps> = ({
         <div
           className="absolute flex flex-col items-center select-none pointer-events-none z-10 opacity-30"
           style={{
-            left: `${player.position.x}%`,
-            top: `${player.position.y}%`,
+            left: `${basePosition.x}%`,
+            top: `${basePosition.y}%`,
             transform: 'translate(-50%, -50%)',
           }}
         >
