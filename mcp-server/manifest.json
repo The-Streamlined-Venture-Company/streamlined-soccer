@@ -1,0 +1,36 @@
+{
+  "manifest_version": "0.2",
+  "name": "streamlined-soccer",
+  "version": "1.0.0",
+  "description": "Manage your football/soccer player database from Claude Desktop. Add players, update ratings, get stats, and more.",
+  "author": {
+    "name": "zeemkane"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "SUPABASE_URL": "${user_config.SUPABASE_URL}",
+        "SUPABASE_SERVICE_ROLE_KEY": "${user_config.SUPABASE_SERVICE_ROLE_KEY}"
+      }
+    }
+  },
+  "user_config": {
+    "SUPABASE_URL": {
+      "type": "string",
+      "title": "Supabase URL",
+      "description": "Your Supabase project URL (e.g., https://xxxx.supabase.co)",
+      "required": true
+    },
+    "SUPABASE_SERVICE_ROLE_KEY": {
+      "type": "string",
+      "title": "Service Role Key",
+      "description": "Supabase service role key for database access",
+      "required": true
+    }
+  },
+  "license": "MIT"
+}

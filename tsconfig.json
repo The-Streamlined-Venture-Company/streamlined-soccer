@@ -1,6 +1,6 @@
 {
   "include": ["**/*.ts", "**/*.tsx", "vite-env.d.ts"],
-  "exclude": ["node_modules", "dist", "shared", "mcp-server", "supabase/functions"],
+  "exclude": ["node_modules", "dist", "mcp-server", "supabase/functions"],
   "compilerOptions": {
     "target": "ES2022",
     "experimentalDecorators": true,

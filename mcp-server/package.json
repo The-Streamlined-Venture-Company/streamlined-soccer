@@ -1,0 +1,33 @@
+{
+  "name": "streamlined-soccer-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server for PitchMaster Pro - Manage your football/soccer player database via Claude Desktop or any MCP-compatible client",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "inspect": "npx @anthropic-ai/mcp-inspector dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "soccer",
+    "football",
+    "supabase"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@supabase/supabase-js": "^2.49.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
