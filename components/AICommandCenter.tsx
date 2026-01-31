@@ -24,15 +24,37 @@ interface AICommandCenterProps {
   onPlayersUpdated?: () => void;
   onAssignToField?: (players: AIPlayerResult[]) => void;
   findPlayerByName?: (name: string) => DbPlayer | null;
+  onDockChange?: (isDocked: boolean) => void;
 }
 
 const AICommandCenter: React.FC<AICommandCenterProps> = ({
   onPlayersUpdated,
   onAssignToField,
-  findPlayerByName
+  findPlayerByName,
+  onDockChange
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [isDocked, setIsDocked] = useState(() => {
+    // Persist dock preference
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('chat-docked') === 'true';
+    }
+    return false;
+  });
   const [showThreads, setShowThreads] = useState(false);
+
+  // Notify parent when dock state changes
+  useEffect(() => {
+    if (onDockChange) {
+      onDockChange(isOpen && isDocked);
+    }
+  }, [isOpen, isDocked, onDockChange]);
+
+  const toggleDock = () => {
+    const newDocked = !isDocked;
+    setIsDocked(newDocked);
+    localStorage.setItem('chat-docked', String(newDocked));
+  };
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<{ base64: string; mimeType: string } | null>(null);
@@ -411,15 +433,30 @@ const AICommandCenter: React.FC<AICommandCenterProps> = ({
                 </svg>
               </button>
             </div>
-            <button
-              onClick={handleNewChat}
-              className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-emerald-400"
-              title="New chat"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={toggleDock}
+                className={`p-1.5 hover:bg-slate-800 rounded-lg transition-colors ${isDocked ? 'text-emerald-400' : 'text-slate-400 hover:text-white'}`}
+                title={isDocked ? 'Undock panel' : 'Dock to side'}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  {isDocked ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                  )}
+                </svg>
+              </button>
+              <button
+                onClick={handleNewChat}
+                className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-emerald-400"
+                title="New chat"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* Thread list dropdown */}

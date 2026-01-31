@@ -37,6 +37,7 @@ const App: React.FC = () => {
   const [showRatings, setShowRatings] = useState(true);
   const [hideUI, setHideUI] = useState(false);
   const [titleClicks, setTitleClicks] = useState(0);
+  const [chatDocked, setChatDocked] = useState(false);
   const pitchRef = useRef<HTMLDivElement>(null);
   const showRatingsRef = useRef(showRatings);
   showRatingsRef.current = showRatings;
@@ -192,7 +193,7 @@ const App: React.FC = () => {
   // Players Database Page
   if (currentPage === 'players') {
     return (
-      <div className="min-h-screen bg-[#020617] flex flex-col items-center p-4 md:p-8">
+      <div className={`min-h-screen bg-[#020617] flex flex-col items-center p-4 md:p-8 transition-all duration-300 ${chatDocked ? 'pr-[24rem] sm:pr-[26rem]' : ''}`}>
         {/* Password Recovery Modal */}
         {isPasswordRecovery && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -228,14 +229,14 @@ const App: React.FC = () => {
         </footer>
 
         {/* AI Command Center - floating chat */}
-        {isAuthenticated && <AICommandCenter onPlayersUpdated={refreshPlayers} />}
+        {isAuthenticated && <AICommandCenter onPlayersUpdated={refreshPlayers} onDockChange={setChatDocked} />}
       </div>
     );
   }
 
   // Lineup Page (default)
   return (
-    <div className={`min-h-screen bg-[#020617] flex flex-col items-center transition-all duration-500 ${hideUI ? 'p-0' : 'p-4 md:p-8'}`}>
+    <div className={`min-h-screen bg-[#020617] flex flex-col items-center transition-all duration-500 ${hideUI ? 'p-0' : 'p-4 md:p-8'} ${chatDocked && !hideUI ? 'pr-[24rem] sm:pr-[26rem]' : ''}`}>
 
       {/* Password Recovery Modal */}
       {isPasswordRecovery && (
@@ -344,6 +345,7 @@ const App: React.FC = () => {
           onPlayersUpdated={refreshPlayers}
           onAssignToField={handleAIPlayers}
           findPlayerByName={findPlayerByName}
+          onDockChange={setChatDocked}
         />
       )}
 
