@@ -71,15 +71,13 @@ interface Slot {
 // instead of 4 so everything fits in WhatsApp's 4:5 uncropped preview.
 // Works for typical 6-a-side where everyone rotates rather than having a
 // dedicated GK.
-// 1-2-2-1 (classic 6-a-side). GK y ≥ 15 and FWD y ≤ 87 so the top/bottom
-// row shirts don't get clipped at the image edges in WhatsApp's 4:5 preview.
 const FORMATION_6: Slot[] = [
-  { x: 50, y: 15 },    // GK (near goal)
-  { x: 25, y: 39 },    // DEF L
-  { x: 75, y: 39 },    // DEF R
-  { x: 25, y: 63 },    // MID L
-  { x: 75, y: 63 },    // MID R
-  { x: 50, y: 87 },    // FWD (near center)
+  { x: 50, y: 22 },    // GK
+  { x: 25, y: 42 },    // DEF L
+  { x: 75, y: 42 },    // DEF R
+  { x: 25, y: 65 },    // MID L
+  { x: 75, y: 65 },    // MID R
+  { x: 50, y: 88 },    // FWD
 ];
 
 function slotsForTeam(n: number): Slot[] {
