@@ -25,6 +25,17 @@ export interface Group {
   participantCount?: number;
 }
 
+export interface GroupParticipant {
+  /** Stable WhatsApp JID (e.g. 971501234567@s.whatsapp.net or 1234567@lid) */
+  id: string;
+  /** Phone number digits where derivable. Empty string if not yet known (some LID-only contacts). */
+  phoneNumber: string;
+  /** Display name as shown in WhatsApp. Empty string if no inbound message has been seen yet. */
+  pushName: string;
+  /** Whether this member is an admin/superadmin in the group. */
+  isAdmin: boolean;
+}
+
 export interface RelayError extends Error {
   status?: number;
   code?: string;
@@ -94,6 +105,11 @@ export function relayClient(relayUrl: string) {
         method: 'POST',
       }),
     groups: () => request<Group[]>(relayUrl, '/groups?connection=user'),
+    groupParticipants: (chatJid: string) =>
+      request<GroupParticipant[]>(
+        relayUrl,
+        `/groups/${encodeURIComponent(chatJid)}/participants?connection=user`
+      ),
     sendMessage: (to: string, text: string) =>
       request<{ sent: boolean; to: string }>(relayUrl, '/message?connection=user', {
         method: 'POST',

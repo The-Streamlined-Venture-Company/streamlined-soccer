@@ -39,3 +39,7 @@ ss-and-logs/
 *.csv
 .mcp.json
 supabase/.temp/
+.vercel/
+
+# Claude Code
+.claude/

@@ -364,61 +364,41 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
 
       {/* Reminders */}
       <SubSection
-        title="Reminders"
+        title="Nudge"
         summary={
-          [
-            merged.followup_nudge_enabled
-              ? `Follow-up ${merged.followup_threshold_low}-${merged.followup_threshold_high}`
-              : null,
-            merged.morning_nudge_enabled ? `Morning ${timeInputValue(merged.morning_nudge_time)}` : null,
-          ]
-            .filter(Boolean)
-            .join(' · ') || 'All off'
+          merged.nudge_enabled
+            ? `${merged.nudge_days_before === 0 ? 'Same day' : `${merged.nudge_days_before}d before`} at ${timeInputValue(merged.nudge_time)} (if signups < min)`
+            : 'Off'
         }
       >
         <Toggle
-          checked={merged.followup_nudge_enabled}
-          onChange={v => set('followup_nudge_enabled', v)}
-          label="Follow-up when numbers are low"
+          checked={merged.nudge_enabled}
+          onChange={v => set('nudge_enabled', v)}
+          label="Send a group nudge if signups are low"
+          hint={`Only fires if signups are below the minimum (${merged.min_players}). One nudge per week.`}
         />
-        {merged.followup_nudge_enabled && (
+        {merged.nudge_enabled && (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Start at" hint="Signups at or below this">
+            <Field label="Days before kickoff" hint="0 = same day">
               <input
                 type="number"
                 min={0}
-                max={50}
-                value={merged.followup_threshold_low}
-                onChange={e => set('followup_threshold_low', Number(e.target.value))}
+                max={14}
+                step={1}
+                value={merged.nudge_days_before}
+                onChange={e => set('nudge_days_before', Number(e.target.value))}
                 className={inputCls}
               />
             </Field>
-            <Field label="Stop at" hint="Once signups reach this">
+            <Field label="Time">
               <input
-                type="number"
-                min={0}
-                max={50}
-                value={merged.followup_threshold_high}
-                onChange={e => set('followup_threshold_high', Number(e.target.value))}
+                type="time"
+                value={timeInputValue(merged.nudge_time)}
+                onChange={e => set('nudge_time', e.target.value)}
                 className={inputCls}
               />
             </Field>
           </div>
-        )}
-        <Toggle
-          checked={merged.morning_nudge_enabled}
-          onChange={v => set('morning_nudge_enabled', v)}
-          label="Morning-of group nudge"
-        />
-        {merged.morning_nudge_enabled && (
-          <Field label="Nudge time (game day)">
-            <input
-              type="time"
-              value={timeInputValue(merged.morning_nudge_time)}
-              onChange={e => set('morning_nudge_time', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
         )}
       </SubSection>
 

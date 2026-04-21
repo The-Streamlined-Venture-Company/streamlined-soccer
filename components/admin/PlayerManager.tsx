@@ -3,6 +3,9 @@ import { Player, PlayerInsert, PlayerUpdate, PreferredPosition, PlayerStatus } f
 import { usePlayers } from '../../hooks/usePlayers';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import ErrorMessage from '../ui/ErrorMessage';
+import MatchWhatsAppMembers from './MatchWhatsAppMembers';
+
+type Tab = 'database' | 'match_members';
 
 // Hook to detect mobile viewport
 const useIsMobile = () => {
@@ -58,6 +61,7 @@ const SkillCell: React.FC<{ value: number; editing?: boolean; onChange?: (val: n
 const PlayerManager: React.FC<PlayerManagerProps> = ({ onClose }) => {
   const isMobile = useIsMobile();
   const { players, isLoading, error, addPlayer, updatePlayer, deletePlayer, refresh } = usePlayers();
+  const [tab, setTab] = useState<Tab>('database');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<PlayerUpdate>({});
@@ -212,6 +216,34 @@ const PlayerManager: React.FC<PlayerManagerProps> = ({ onClose }) => {
           </button>
         )}
       </div>
+
+      {/* Tab toggle */}
+      <div className="flex gap-1 bg-slate-950 p-1 rounded-xl mb-4 border border-slate-800">
+        <button
+          type="button"
+          onClick={() => setTab('database')}
+          className={`flex-1 px-3 py-2 text-xs font-black uppercase tracking-wider rounded-lg transition-colors ${
+            tab === 'database' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Roster
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('match_members')}
+          className={`flex-1 px-3 py-2 text-xs font-black uppercase tracking-wider rounded-lg transition-colors ${
+            tab === 'match_members' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Match WhatsApp
+        </button>
+      </div>
+
+      {tab === 'match_members' && (
+        <MatchWhatsAppMembers />
+      )}
+
+      {tab === 'database' && (<>
 
       {/* Error message */}
       {error && <ErrorMessage error={error} variant="banner" />}
@@ -695,6 +727,8 @@ const PlayerManager: React.FC<PlayerManagerProps> = ({ onClose }) => {
         <span>Skills: <span className="text-emerald-400">8-10</span> Elite • <span className="text-amber-400">6-7</span> Good • <span className="text-slate-300">4-5</span> Average • <span className="text-red-400">0-3</span> Weak</span>
         <span>★ = Linchpin</span>
       </div>
+
+      </>)}
     </div>
   );
 };

@@ -49,6 +49,13 @@ export interface WeeklySession {
   signups_in: number;
   signups_out: number;
   signups_maybe: number;
+  /** WhatsApp JIDs of accounts that voted "in" — populated by the runtime each tick. */
+  signup_voter_jids: string[];
+  /** Subset of signup_voter_jids that don't yet have a matching player record. */
+  unmapped_voter_jids: string[];
+  /** FK to lineups.id once team gen has run. */
+  lineup_id: string | null;
+  team_post_message_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -110,6 +117,10 @@ export interface Database {
           preferred_team: TeamPreference;
           aliases: string[];
           notes: string | null;
+          whatsapp_phone: string | null;
+          whatsapp_jid: string | null;
+          whatsapp_push_name: string | null;
+          discovered_via: 'manual' | 'whatsapp_auto';
           created_by: string | null;
           created_at: string;
           updated_at: string;
@@ -130,6 +141,10 @@ export interface Database {
           preferred_team?: TeamPreference;
           aliases?: string[];
           notes?: string | null;
+          whatsapp_phone?: string | null;
+          whatsapp_jid?: string | null;
+          whatsapp_push_name?: string | null;
+          discovered_via?: 'manual' | 'whatsapp_auto';
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -149,6 +164,10 @@ export interface Database {
           preferred_team?: TeamPreference;
           aliases?: string[];
           notes?: string | null;
+          whatsapp_phone?: string | null;
+          whatsapp_jid?: string | null;
+          whatsapp_push_name?: string | null;
+          discovered_via?: 'manual' | 'whatsapp_auto';
           updated_at?: string;
         };
       };
@@ -277,12 +296,11 @@ export interface Database {
           confirmation_enabled: boolean;
           confirmation_days_before: number;
           confirmation_time: string | null;
-          followup_nudge_enabled: boolean;
-          followup_threshold_low: number;
-          followup_threshold_high: number;
-          morning_nudge_enabled: boolean;
-          morning_nudge_time: string;
+          nudge_enabled: boolean;
+          nudge_days_before: number;
+          nudge_time: string;
           team_gen_offset_hours: number;
+          team_force_post_minutes_before_kickoff: number;
           mom_enabled: boolean;
           match_duration_minutes: number;
           mom_delay_minutes: number;
@@ -317,12 +335,11 @@ export interface Database {
           confirmation_enabled?: boolean;
           confirmation_days_before?: number;
           confirmation_time?: string | null;
-          followup_nudge_enabled?: boolean;
-          followup_threshold_low?: number;
-          followup_threshold_high?: number;
-          morning_nudge_enabled?: boolean;
-          morning_nudge_time?: string;
+          nudge_enabled?: boolean;
+          nudge_days_before?: number;
+          nudge_time?: string;
           team_gen_offset_hours?: number;
+          team_force_post_minutes_before_kickoff?: number;
           mom_enabled?: boolean;
           match_duration_minutes?: number;
           mom_delay_minutes?: number;
@@ -350,12 +367,11 @@ export interface Database {
           confirmation_enabled?: boolean;
           confirmation_days_before?: number;
           confirmation_time?: string | null;
-          followup_nudge_enabled?: boolean;
-          followup_threshold_low?: number;
-          followup_threshold_high?: number;
-          morning_nudge_enabled?: boolean;
-          morning_nudge_time?: string;
+          nudge_enabled?: boolean;
+          nudge_days_before?: number;
+          nudge_time?: string;
           team_gen_offset_hours?: number;
+          team_force_post_minutes_before_kickoff?: number;
           mom_enabled?: boolean;
           match_duration_minutes?: number;
           mom_delay_minutes?: number;

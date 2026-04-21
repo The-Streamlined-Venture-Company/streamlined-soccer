@@ -68,28 +68,16 @@ export function sampleCallOut(ctx: Ctx): SamplePayload {
   return { kind: 'poll', question, options, selectableCount: 1 };
 }
 
-// ── Morning nudge (group post) ───────────────────────────────────────────────
+// ── Nudge (group post) ───────────────────────────────────────────────────────
 
-export function sampleMorningNudge(ctx: Ctx): SamplePayload {
+export function sampleNudge(ctx: Ctx): SamplePayload {
   const { session, persona } = ctx;
   const so_far = Math.max(0, session.min_players - 2);
-  const need = session.target_players - so_far;
+  const need = session.min_players - so_far;
   const body =
-    `🌅 *Morning, we still need ${need} more for tonight* (${dayName(session.kickoff_dow)} ${timeShort(session.kickoff_time)}${pitchSuffix(session)}).\n\n` +
-    `Currently ${so_far} of ${session.target_players}. Reply *In* to lock your spot.`;
-  return { kind: 'message', text: formatAutomatedMessage(body, persona) };
-}
-
-// ── Follow-up DM to an individual ───────────────────────────────────────────
-
-export function sampleFollowupDm(ctx: Ctx): SamplePayload {
-  const { session, persona, players } = ctx;
-  const name = players[0]?.name.split(' ')[0] ?? 'mate';
-  const body =
-    `Hey ${name} 👋\n\n` +
-    `We're a few short for ${dayName(session.kickoff_dow)} ${timeShort(session.kickoff_time)}${pitchSuffix(session)}. ` +
-    `You usually play — fancy it this week?\n\n` +
-    `Just reply *In* or *Out*.`;
+    `🌅 *${dayName(session.kickoff_dow)} football at ${timeShort(session.kickoff_time)}${pitchSuffix(session)}*\n\n` +
+    `We've got *${so_far}/${session.target_players}* so far — still need at least *${need}* more.\n\n` +
+    `If you're in, vote on the poll above 👆`;
   return { kind: 'message', text: formatAutomatedMessage(body, persona) };
 }
 
@@ -210,18 +198,11 @@ export const TESTS: TestEntry[] = [
     generate: sampleCallOut,
   },
   {
-    id: 'morning_nudge',
-    label: 'Morning nudge',
-    description: 'Group post on game-day morning when numbers are low.',
+    id: 'nudge',
+    label: 'Nudge',
+    description: 'Group post when signups are below the minimum.',
     target: 'group',
-    generate: sampleMorningNudge,
-  },
-  {
-    id: 'followup_dm',
-    label: 'Follow-up DM',
-    description: 'A DM to a regular who hasn\'t responded yet (sent here as a group post for preview).',
-    target: 'group',
-    generate: sampleFollowupDm,
+    generate: sampleNudge,
   },
   {
     id: 'confirmation_dm',

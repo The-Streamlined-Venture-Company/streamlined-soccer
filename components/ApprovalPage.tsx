@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApprovalLineup } from '../hooks/useApprovalLineup';
-import { LineupPlayer, LineupStatus } from '../types/database';
+import { usePlayers } from '../hooks/usePlayers';
+import { LineupPlayer, LineupStatus, Player } from '../types/database';
+import { formatPhone, scoreMatch } from '../lib/nameMatch';
 import LoadingSpinner from './ui/LoadingSpinner';
 import ErrorMessage from './ui/ErrorMessage';
 import Auth from './Auth';
@@ -140,11 +142,15 @@ const ApprovalPage: React.FC<ApprovalPageProps> = ({ token }) => {
   const {
     lineup,
     players: serverPlayers,
+    unmappedVoterJids,
     isLoading,
     error,
     saveTeams,
     setStatus,
+    clearUnmappedVoter,
+    refresh,
   } = useApprovalLineup(isAuthenticated ? token : null);
+  const { players: rosterPlayers, addPlayer, updatePlayer } = usePlayers();
 
   const [draft, setDraft] = useState<LineupPlayer[]>([]);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
@@ -380,6 +386,33 @@ const ApprovalPage: React.FC<ApprovalPageProps> = ({ token }) => {
         </div>
       </section>
 
+      {/* Unmapped voters — quick-match section */}
+      {!isFinal && unmappedVoterJids.length > 0 && (
+        <UnmappedVotersSection
+          jids={unmappedVoterJids}
+          rosterPlayers={rosterPlayers}
+          lineupPlayerIds={new Set(draft.map(p => p.player_id))}
+          onMatch={async (jid, playerId) => {
+            const ok = await updatePlayer(playerId, { whatsapp_jid: jid, whatsapp_phone: jid.split('@')[0] });
+            if (ok) await clearUnmappedVoter(jid);
+            return ok;
+          }}
+          onCreate={async (jid, name) => {
+            const created = await addPlayer({
+              name: name.trim() || `Player ${jid.split('@')[0]}`,
+              status: 'newbie',
+              whatsapp_jid: jid,
+              whatsapp_phone: jid.split('@')[0],
+              discovered_via: 'whatsapp_auto',
+            });
+            if (!created) return false;
+            return await clearUnmappedVoter(jid);
+          }}
+          onSkip={async jid => clearUnmappedVoter(jid)}
+          onRefresh={refresh}
+        />
+      )}
+
       {/* Two team lists */}
       <main className="px-4 md:px-8 py-6">
         <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -478,6 +511,158 @@ const ApprovalPage: React.FC<ApprovalPageProps> = ({ token }) => {
         </div>
       </div>
     </div>
+  );
+};
+
+// ── Unmapped voters quick-match section ────────────────────────────────────
+// Shows voters that polled "in" but couldn't be mapped to a player record.
+// One tap maps to an existing player or creates a new one.
+
+interface UnmappedVotersSectionProps {
+  jids: string[];
+  rosterPlayers: Player[];
+  lineupPlayerIds: Set<string>;
+  onMatch: (jid: string, playerId: string) => Promise<boolean>;
+  onCreate: (jid: string, name: string) => Promise<boolean>;
+  onSkip: (jid: string) => Promise<boolean>;
+  onRefresh: () => Promise<void>;
+}
+
+const UnmappedVotersSection: React.FC<UnmappedVotersSectionProps> = ({
+  jids,
+  rosterPlayers,
+  lineupPlayerIds,
+  onMatch,
+  onCreate,
+  onSkip,
+  onRefresh,
+}) => {
+  const [busyJid, setBusyJid] = useState<string | null>(null);
+  const [creatingNames, setCreatingNames] = useState<Record<string, string>>({});
+
+  const wrap = async (jid: string, fn: () => Promise<boolean>) => {
+    setBusyJid(jid);
+    try {
+      const ok = await fn();
+      if (ok) await onRefresh();
+    } finally {
+      setBusyJid(null);
+    }
+  };
+
+  return (
+    <section className="px-4 md:px-8 py-4 bg-amber-950/20 border-y border-amber-800/30">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-amber-200 text-sm font-black uppercase tracking-wider">
+              ⚠ {jids.length} voter{jids.length === 1 ? '' : 's'} not mapped to a player
+            </h3>
+            <p className="text-amber-300/80 text-xs mt-1">
+              These people voted "in" but I don't know who they are. Match them now and they'll be ready for next week's auto-pick.
+            </p>
+          </div>
+        </div>
+
+        <ul className="space-y-2">
+          {jids.map(jid => {
+            const phone = jid.split('@')[0];
+            const isBusy = busyJid === jid;
+            // Sort roster: best name-match first (using phone as the "name"); only un-rostered players are useful
+            const candidates = rosterPlayers
+              .filter(p => !lineupPlayerIds.has(p.id) && !p.whatsapp_jid)
+              .map(p => ({ p, score: scoreMatch(phone, p) }))
+              .sort((a, b) => {
+                if (a.score !== b.score) return b.score - a.score;
+                return a.p.name.localeCompare(b.p.name);
+              });
+
+            return (
+              <li
+                key={jid}
+                className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-center p-3 bg-slate-900/60 border border-amber-800/30 rounded-xl"
+              >
+                <div className="min-w-0">
+                  <div className="text-white text-sm font-semibold">
+                    {formatPhone(phone)} {jid.endsWith('@lid') && <span className="text-slate-500 text-xs ml-1">(LID)</span>}
+                  </div>
+                  <div className="text-slate-500 text-[10px] truncate">{jid}</div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 justify-end">
+                  <select
+                    disabled={isBusy}
+                    onChange={e => {
+                      const v = e.target.value;
+                      e.target.value = '';
+                      if (v === '__create__') {
+                        const seed = formatPhone(phone);
+                        setCreatingNames(s => ({ ...s, [jid]: seed }));
+                      } else if (v === '__skip__') {
+                        wrap(jid, () => onSkip(jid));
+                      } else if (v) {
+                        wrap(jid, () => onMatch(jid, v));
+                      }
+                    }}
+                    defaultValue=""
+                    className="bg-slate-950 border border-slate-700 text-slate-100 rounded-lg px-2 py-1.5 text-xs disabled:opacity-50"
+                  >
+                    <option value="" disabled>Match to player…</option>
+                    <option value="__create__">+ Create new player</option>
+                    <option value="__skip__">— Skip (don't match)</option>
+                    <optgroup label="Existing un-mapped players">
+                      {candidates.length === 0 && <option disabled>No candidates available</option>}
+                      {candidates.map(({ p, score }) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}{score >= 70 ? ' ★' : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+
+                {creatingNames[jid] !== undefined && (
+                  <div className="col-span-2 flex gap-2 items-center pt-2 border-t border-slate-800/40">
+                    <input
+                      type="text"
+                      value={creatingNames[jid]}
+                      disabled={isBusy}
+                      onChange={e => setCreatingNames(s => ({ ...s, [jid]: e.target.value }))}
+                      placeholder="New player name"
+                      autoFocus
+                      className="flex-1 bg-slate-950 border border-amber-700/40 text-amber-100 rounded-lg px-3 py-1.5 text-xs"
+                    />
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => {
+                        const name = creatingNames[jid];
+                        wrap(jid, async () => {
+                          const ok = await onCreate(jid, name);
+                          if (ok) setCreatingNames(s => { const { [jid]: _, ...rest } = s; return rest; });
+                          return ok;
+                        });
+                      }}
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-bold disabled:opacity-50"
+                    >
+                      {isBusy ? 'Creating…' : 'Create'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={() => setCreatingNames(s => { const { [jid]: _, ...rest } = s; return rest; })}
+                      className="px-2 py-1.5 text-slate-500 hover:text-slate-300 text-xs"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </section>
   );
 };
 
