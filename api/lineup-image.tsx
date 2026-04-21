@@ -112,7 +112,7 @@ const SHIRT_PATH =
 
 function BlackShirt() {
   return (
-    <svg viewBox="0 0 100 100" width="128" height="128" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 100 100" width="180" height="180" xmlns="http://www.w3.org/2000/svg">
       <path d={SHIRT_PATH} fill="#0a0a0a" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
     </svg>
   );
@@ -120,7 +120,7 @@ function BlackShirt() {
 
 function WhiteShirt() {
   return (
-    <svg viewBox="0 0 100 100" width="128" height="128" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 100 100" width="180" height="180" xmlns="http://www.w3.org/2000/svg">
       <path d={SHIRT_PATH} fill="#ffffff" stroke="rgba(0,0,0,0.15)" strokeWidth="1" />
     </svg>
   );
@@ -145,18 +145,18 @@ function PlayerOnPitch({ player, x, y }: { player: Position; x: number; y: numbe
       {/* Bold name plate — solid background for legibility against grass */}
       <div
         style={{
-          marginTop: -14,
-          padding: '6px 16px',
+          marginTop: -18,
+          padding: '8px 20px',
           backgroundColor: '#0f172a',
           color: '#ffffff',
-          borderRadius: 8,
-          fontSize: 36,
+          borderRadius: 10,
+          fontSize: 40,
           fontWeight: 800,
           letterSpacing: 0.3,
           display: 'flex',
           alignItems: 'center',
           whiteSpace: 'nowrap',
-          boxShadow: '0 4px 10px rgba(0,0,0,0.5)',
+          boxShadow: '0 6px 14px rgba(0,0,0,0.5)',
         }}
       >
         {player.name}
@@ -349,7 +349,6 @@ export default async function handler(req: Request): Promise<Response> {
 
       </div>
     ),
-    // 4:5 portrait — WhatsApp shows this ratio in chat preview without cropping.
-    { width: 1080, height: 1350 }
+    { width: 1080, height: 1920 }
   );
 }
