@@ -965,7 +965,36 @@ async function fireMomPoll(
     return;
   }
 
-  // Per-player DM flow (production): send a poll to each player with the OTHERS as options.
+  if (s.mom_method === 'web_link') {
+    // Web-link flow: post an anonymous vote link to the group. Players tap,
+    // pick, dedup is per-device. Aggregation reads from soccer.mom_votes.
+    if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_poll: no whatsapp_group_jid' }); return; }
+    const voteToken = generateToken();
+    const { error: tokErr } = await supabase
+      .from('weekly_sessions')
+      .update({ mom_vote_token: voteToken, mom_message_id: 'web_link', state: 'mom_sent' })
+      .eq('id', ws.id);
+    if (tokErr) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom_poll token save: ${tokErr.message}` }); return; }
+    const link = `${APP_URL}/mom/${voteToken}`;
+    const windowMin = s.mom_results_post_minutes;
+    const text =
+      `🏆 *Man of the Match — ${question.replace('🏆 Man of the Match — ', '').replace('?','')}*\n\n` +
+      `Vote privately — anonymous.\n${link}\n\n` +
+      `You have *${windowMin} min* to cast your vote ⏱`;
+    const url = cfg.relay_url.replace(/\/$/, '') + '/message?connection=user';
+    try {
+      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text }) });
+      if (!resp.ok) {
+        const body = (await resp.text()).substring(0, 300);
+        await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom web link post ${resp.status}`, details: { body } });
+        return;
+      }
+    } catch (e) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom web link net err: ${(e as Error).message}` }); return; }
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: MoM vote link posted`, details: { link, window_min: windowMin } });
+    return;
+  }
+
+  // Per-player DM flow (production fallback when web_link not chosen): send a poll to each player with the OTHERS as options.
   const ballots: Array<{ recipient_player_id: string; recipient_jid: string; poll_message_id: string | null; option_player_ids: string[] }> = [];
   const unmappedNames: string[] = [];
 
@@ -1034,39 +1063,51 @@ async function fireMomResults(
 ): Promise<void> {
   const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
   const { data: ws } = await supabase
-    .from('weekly_sessions').select('id, state, lineup_id, mom_ballots, mom_results_message_id')
+    .from('weekly_sessions').select('id, state, lineup_id, mom_ballots, mom_results_message_id, mom_vote_token')
     .eq('session_schedule_id', s.id).eq('match_date', matchDate).single();
   if (!ws) return;
   if (ws.state === 'cancelled' || ws.state === 'confirmation_declined') { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — state '${ws.state}'` }); return; }
   if (ws.mom_results_message_id) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results already posted` }); return; }
-  const ballots = Array.isArray(ws.mom_ballots) ? ws.mom_ballots : [];
-  if (ballots.length === 0) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — no ballots` }); return; }
 
   if (!cfg.relay_url) return;
   const jwt = await ensureSenderJwt();
   if (!jwt) return;
 
-  // For each ballot, fetch the DM chat's polls from the relay and sum the votes.
   const tally = new Map<string, number>(); // player_id → votes
-  for (const b of ballots as Array<{ recipient_jid: string; option_player_ids: string[] }>) {
-    const url = `${cfg.relay_url.replace(/\/$/, '')}/polls?connection=user&chatJid=${encodeURIComponent(b.recipient_jid)}`;
-    try {
-      const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${jwt}` } });
-      if (!resp.ok) continue;
-      // deno-lint-ignore no-explicit-any
-      const body: any = await resp.json().catch(() => null);
-      const polls: RelayPoll[] = Array.isArray(body) ? body : (body?.data ?? []);
-      // Pick the most recent poll — that's our MoM DM
-      const poll = polls.slice().sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
-      if (!poll) continue;
-      for (const r of (poll.results ?? [])) {
-        const idx = poll.options.indexOf(r.name);
-        const pid = idx >= 0 ? b.option_player_ids[idx] : null;
-        if (!pid) continue;
-        const count = Array.isArray(r.voters) ? r.voters.length : 0;
-        tally.set(pid, (tally.get(pid) ?? 0) + count);
-      }
-    } catch (_e) { /* swallow per-ballot errors */ }
+
+  if (s.mom_method === 'web_link' && ws.mom_vote_token) {
+    // Web-link path: read from soccer.mom_votes (canonical, per-device dedup)
+    const { data: votes, error: vErr } = await supabase
+      .from('mom_votes').select('voted_for_player_id')
+      .eq('weekly_session_id', ws.id);
+    if (vErr) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom_results: fetch votes failed: ${vErr.message}` }); return; }
+    for (const v of (votes ?? []) as Array<{ voted_for_player_id: string }>) {
+      tally.set(v.voted_for_player_id, (tally.get(v.voted_for_player_id) ?? 0) + 1);
+    }
+  } else {
+    // DM/organiser_dm path: read poll votes via the relay
+    const ballots = Array.isArray(ws.mom_ballots) ? ws.mom_ballots : [];
+    if (ballots.length === 0) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — no ballots` }); return; }
+    for (const b of ballots as Array<{ recipient_jid: string; option_player_ids: string[] }>) {
+      const url = `${cfg.relay_url.replace(/\/$/, '')}/polls?connection=user&chatJid=${encodeURIComponent(b.recipient_jid)}`;
+      try {
+        const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${jwt}` } });
+        if (!resp.ok) continue;
+        // deno-lint-ignore no-explicit-any
+        const body: any = await resp.json().catch(() => null);
+        const polls: RelayPoll[] = Array.isArray(body) ? body : (body?.data ?? []);
+        // Pick the most recent poll — that's our MoM DM
+        const poll = polls.slice().sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+        if (!poll) continue;
+        for (const r of (poll.results ?? [])) {
+          const idx = poll.options.indexOf(r.name);
+          const pid = idx >= 0 ? b.option_player_ids[idx] : null;
+          if (!pid) continue;
+          const count = Array.isArray(r.voters) ? r.voters.length : 0;
+          tally.set(pid, (tally.get(pid) ?? 0) + count);
+        }
+      } catch (_e) { /* swallow per-ballot errors */ }
+    }
   }
 
   // Load lineup to map ids → names

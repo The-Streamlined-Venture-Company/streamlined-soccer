@@ -9,6 +9,7 @@ import PlayerManager from './components/admin/PlayerManager';
 import OrganiserSettings from './components/admin/OrganiserSettings';
 import ApprovalPage from './components/ApprovalPage';
 import ConfirmPage from './components/ConfirmPage';
+import MomVotePage from './components/MomVotePage';
 import { useAuth } from './contexts/AuthContext';
 import { useDragAndDrop } from './hooks/useDragAndDrop';
 import { useImageExport } from './hooks/useImageExport';
@@ -240,6 +241,15 @@ const App: React.FC = () => {
   })();
   if (confirmToken) {
     return <ConfirmPage token={confirmToken} />;
+  }
+
+  // URL routing for anonymous MoM voting (public, no auth required)
+  const momToken = (() => {
+    const m = window.location.pathname.match(/^\/mom\/([^/?#]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  })();
+  if (momToken) {
+    return <MomVotePage token={momToken} />;
   }
 
   // Show loading while checking auth
