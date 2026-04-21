@@ -72,12 +72,12 @@ interface Slot {
 // Works for typical 6-a-side where everyone rotates rather than having a
 // dedicated GK.
 const FORMATION_6: Slot[] = [
-  { x: 28, y: 17 },    // Back L
-  { x: 72, y: 17 },    // Back R
-  { x: 28, y: 50 },    // Mid L
-  { x: 72, y: 50 },    // Mid R
-  { x: 28, y: 83 },    // Fwd L
-  { x: 72, y: 83 },    // Fwd R
+  { x: 26, y: 15 },    // Back L
+  { x: 74, y: 15 },    // Back R
+  { x: 26, y: 50 },    // Mid L
+  { x: 74, y: 50 },    // Mid R
+  { x: 26, y: 85 },    // Fwd L
+  { x: 74, y: 85 },    // Fwd R
 ];
 
 function slotsForTeam(n: number): Slot[] {
@@ -110,7 +110,7 @@ const SHIRT_PATH =
 
 function BlackShirt() {
   return (
-    <svg viewBox="0 0 100 100" width="180" height="180" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 100 100" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
       <path d={SHIRT_PATH} fill="#0a0a0a" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
     </svg>
   );
@@ -118,7 +118,7 @@ function BlackShirt() {
 
 function WhiteShirt() {
   return (
-    <svg viewBox="0 0 100 100" width="180" height="180" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 100 100" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
       <path d={SHIRT_PATH} fill="#ffffff" stroke="rgba(0,0,0,0.15)" strokeWidth="1" />
     </svg>
   );
@@ -143,18 +143,18 @@ function PlayerOnPitch({ player, x, y }: { player: Position; x: number; y: numbe
       {/* Bold name plate — solid background for legibility against grass */}
       <div
         style={{
-          marginTop: -18,
-          padding: '8px 20px',
+          marginTop: -14,
+          padding: '6px 16px',
           backgroundColor: '#0f172a',
           color: '#ffffff',
-          borderRadius: 10,
-          fontSize: 40,
+          borderRadius: 8,
+          fontSize: 36,
           fontWeight: 800,
           letterSpacing: 0.3,
           display: 'flex',
           alignItems: 'center',
           whiteSpace: 'nowrap',
-          boxShadow: '0 6px 14px rgba(0,0,0,0.5)',
+          boxShadow: '0 4px 10px rgba(0,0,0,0.5)',
         }}
       >
         {player.name}
