@@ -103,32 +103,26 @@ function slotsForTeam(n: number): Slot[] {
 }
 
 // ── Shirt SVG (simplified from components/ShirtIcon.tsx) ────────────────────
+const SHIRT_PATH =
+  'M75.41,18.57c-0.01-0.01-0.03-0.01-0.04-0.02c-0.01-0.01-0.02-0.02-0.03-0.03l-11.59-5.3c-0.01,0-0.01,0-0.02,0c0,0,0,0,0-0.01l-1.7-0.66C61.07,10.98,59.33,10,57.47,10H42.53c-1.85,0-3.59,0.98-4.56,2.56l-1.7,0.66c0,0.01,0,0.01,0,0.01c-0.01,0-0.01,0-0.02,0l-11.59,5.3c-0.01,0.01-0.02,0.02-0.03,0.03c-0.01,0.01-0.03,0.01-0.04,0.02c-4.21,4.06-5.49,9.93-6.27,13.43c-0.71,3.24-0.94,6.59-0.67,9.95c0.01,0.1,0.09,0.2,0.2,0.22l10.55,1.62c0.01,0.01,0.03,0.01,0.04,0.01c0.05,0,0.1-0.02,0.14-0.06c0.06-0.04,0.09-0.1,0.1-0.16l0.91-8.69c2.47,11.67,2.09,22.12,1.74,31.38c-0.29,7.42-1.06,14.91-2.25,22.26c-0.01,0.07,0.01,0.13,0.05,0.18c0.04,0.06,0.1,0.09,0.16,0.1c3.37,0.38,6.53,0.67,9.71,0.86C42.72,89.89,46.43,90,50,90s7.28-0.11,11.01-0.33c3.18-0.19,6.34-0.48,9.71-0.86c0.07-0.01,0.12-0.04,0.16-0.1c0.04-0.05,0.06-0.11,0.05-0.18c-1.2-7.36-1.96-14.85-2.25-22.26c-0.35-9.26-0.73-19.71,1.74-31.37l0.91,8.68c0.01,0.07,0.04,0.12,0.1,0.16c0.04,0.04,0.1,0.06,0.14,0.06c0.01,0,0.03,0,0.04-0.01l10.55-1.62c0.11-0.02,0.19-0.11,0.2-0.22c0.27-3.37,0.04-6.71-0.67-9.95C80.91,28.49,79.62,22.63,75.41,18.57z';
+
 function BlackShirt() {
   return (
-    <svg viewBox="0 0 100 100" width="130" height="130" xmlns="http://www.w3.org/2000/svg">
-      <g fill="#1a1a1a" stroke="#fff" strokeWidth="0.8">
-        <path d="M75.41,18.57c-0.01-0.01-0.03-0.01-0.04-0.02c-0.01-0.01-0.02-0.02-0.03-0.03l-11.59-5.3c-0.01,0-0.01,0-0.02,0c0,0,0,0,0-0.01l-1.7-0.66C61.07,10.98,59.33,10,57.47,10H42.53c-1.85,0-3.59,0.98-4.56,2.56l-1.7,0.66c0,0.01,0,0.01,0,0.01c-0.01,0-0.01,0-0.02,0l-11.59,5.3c-0.01,0.01-0.02,0.02-0.03,0.03c-0.01,0.01-0.03,0.01-0.04,0.02c-4.21,4.06-5.49,9.93-6.27,13.43c-0.71,3.24-0.94,6.59-0.67,9.95c0.01,0.1,0.09,0.2,0.2,0.22l10.55,1.62c0.01,0.01,0.03,0.01,0.04,0.01c0.05,0,0.1-0.02,0.14-0.06c0.06-0.04,0.09-0.1,0.1-0.16l0.91-8.69c2.47,11.67,2.09,22.12,1.74,31.38c-0.29,7.42-1.06,14.91-2.25,22.26c-0.01,0.07,0.01,0.13,0.05,0.18c0.04,0.06,0.1,0.09,0.16,0.1c3.37,0.38,6.53,0.67,9.71,0.86C42.72,89.89,46.43,90,50,90s7.28-0.11,11.01-0.33c3.18-0.19,6.34-0.48,9.71-0.86c0.07-0.01,0.12-0.04,0.16-0.1c0.04-0.05,0.06-0.11,0.05-0.18c-1.2-7.36-1.96-14.85-2.25-22.26c-0.35-9.26-0.73-19.71,1.74-31.37l0.91,8.68c0.01,0.07,0.04,0.12,0.1,0.16c0.04,0.04,0.1,0.06,0.14,0.06c0.01,0,0.03,0,0.04-0.01l10.55-1.62c0.11-0.02,0.19-0.11,0.2-0.22c0.27-3.37,0.04-6.71-0.67-9.95C80.91,28.49,79.62,22.63,75.41,18.57z" />
-      </g>
+    <svg viewBox="0 0 100 100" width="180" height="180" xmlns="http://www.w3.org/2000/svg">
+      <path d={SHIRT_PATH} fill="#0a0a0a" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
     </svg>
   );
 }
 
 function WhiteShirt() {
   return (
-    <svg viewBox="0 0 100 100" width="130" height="130" xmlns="http://www.w3.org/2000/svg">
-      <path
-        fill="#ffffff"
-        stroke="#888"
-        strokeWidth="1"
-        d="M75.41,18.57c-0.01-0.01-0.03-0.01-0.04-0.02c-0.01-0.01-0.02-0.02-0.03-0.03l-11.59-5.3c-0.01,0-0.01,0-0.02,0c0,0,0,0,0-0.01l-1.7-0.66C61.07,10.98,59.33,10,57.47,10H42.53c-1.85,0-3.59,0.98-4.56,2.56l-1.7,0.66c0,0.01,0,0.01,0,0.01c-0.01,0-0.01,0-0.02,0l-11.59,5.3c-0.01,0.01-0.02,0.02-0.03,0.03c-0.01,0.01-0.03,0.01-0.04,0.02c-4.21,4.06-5.49,9.93-6.27,13.43c-0.71,3.24-0.94,6.59-0.67,9.95c0.01,0.1,0.09,0.2,0.2,0.22l10.55,1.62c0.01,0.01,0.03,0.01,0.04,0.01c0.05,0,0.1-0.02,0.14-0.06c0.06-0.04,0.09-0.1,0.1-0.16l0.91-8.69c2.47,11.67,2.09,22.12,1.74,31.38c-0.29,7.42-1.06,14.91-2.25,22.26c-0.01,0.07,0.01,0.13,0.05,0.18c0.04,0.06,0.1,0.09,0.16,0.1c3.37,0.38,6.53,0.67,9.71,0.86C42.72,89.89,46.43,90,50,90s7.28-0.11,11.01-0.33c3.18-0.19,6.34-0.48,9.71-0.86c0.07-0.01,0.12-0.04,0.16-0.1c0.04-0.05,0.06-0.11,0.05-0.18c-1.2-7.36-1.96-14.85-2.25-22.26c-0.35-9.26-0.73-19.71,1.74-31.37l0.91,8.68c0.01,0.07,0.04,0.12,0.1,0.16c0.04,0.04,0.1,0.06,0.14,0.06c0.01,0,0.03,0,0.04-0.01l10.55-1.62c0.11-0.02,0.19-0.11,0.2-0.22c0.27-3.37,0.04-6.71-0.67-9.95C80.91,28.49,79.62,22.63,75.41,18.57z"
-      />
+    <svg viewBox="0 0 100 100" width="180" height="180" xmlns="http://www.w3.org/2000/svg">
+      <path d={SHIRT_PATH} fill="#ffffff" stroke="rgba(0,0,0,0.15)" strokeWidth="1" />
     </svg>
   );
 }
 
 function PlayerOnPitch({ player, x, y }: { player: Position; x: number; y: number; key?: string }) {
-  // x/y are % of the overall image (0-100). Convert to absolute for use with
-  // `left`/`top`. Shirts are 130px, card width ~200px centered on the slot.
   return (
     <div
       style={{
@@ -139,39 +133,26 @@ function PlayerOnPitch({ player, x, y }: { player: Position; x: number; y: numbe
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        width: 200,
+        width: 260,
       }}
     >
-      {/* Linchpin halo ring — rendered behind the shirt */}
-      {player.is_linchpin && (
-        <div
-          style={{
-            position: 'absolute',
-            top: -6,
-            width: 142,
-            height: 142,
-            borderRadius: 71,
-            border: '4px solid #fbbf24',
-            boxShadow: '0 0 24px rgba(251, 191, 36, 0.45)',
-            display: 'flex',
-          }}
-        />
-      )}
       {/* Shirt */}
       {player.team === 'black' ? <BlackShirt /> : <WhiteShirt />}
-      {/* Name pill */}
+      {/* Bold name plate — solid background for legibility against grass */}
       <div
         style={{
-          marginTop: -12,
-          padding: '6px 14px',
-          backgroundColor: 'rgba(15, 23, 42, 0.85)',
-          color: '#f1f5f9',
-          borderRadius: 20,
-          fontSize: 26,
-          fontWeight: 700,
+          marginTop: -18,
+          padding: '8px 20px',
+          backgroundColor: '#0f172a',
+          color: '#ffffff',
+          borderRadius: 10,
+          fontSize: 40,
+          fontWeight: 800,
+          letterSpacing: 0.3,
           display: 'flex',
           alignItems: 'center',
           whiteSpace: 'nowrap',
+          boxShadow: '0 6px 14px rgba(0,0,0,0.5)',
         }}
       >
         {player.name}
@@ -219,72 +200,54 @@ export default async function handler(req: Request): Promise<Response> {
           width: '100%',
           height: '100%',
           display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: '#020617',
+          position: 'relative',
+          backgroundColor: '#1b5e20',
+          // Subtle horizontal grass stripes
+          backgroundImage: 'repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 90px, rgba(0,0,0,0.04) 90px 180px)',
           fontFamily: '"Inter", sans-serif',
+          border: '12px solid rgba(255,255,255,0.92)',
         }}
       >
-        {/* Top banner */}
+        {/* Title overlay — sits ON the pitch, near the top, subtle */}
         <div
           style={{
+            position: 'absolute',
+            top: 24,
+            left: 0,
+            right: 0,
             display: 'flex',
-            justifyContent: 'space-between',
+            justifyContent: 'center',
             alignItems: 'center',
-            padding: '18px 32px',
-            backgroundColor: '#0f172a',
-            borderBottom: '2px solid #1e293b',
+            gap: 18,
+            zIndex: 5,
           }}
         >
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <div
-              style={{
-                display: 'flex',
-                fontSize: 14,
-                letterSpacing: 4,
-                color: '#34d399',
-                fontWeight: 900,
-                textTransform: 'uppercase',
-              }}
-            >
-              Streamlined Soccer
-            </div>
-            <div
-              style={{
-                display: 'flex',
-                fontSize: 36,
-                fontWeight: 900,
-                fontStyle: 'italic',
-                color: '#f1f5f9',
-                lineHeight: 1.1,
-                marginTop: 2,
-              }}
-            >
-              {dayName} {time}
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-            {pitchLabel ? (
-              <div style={{ display: 'flex', color: '#94a3b8', fontSize: 18 }}>
-                {pitchLabel}
-              </div>
-            ) : null}
-            <div style={{ display: 'flex', color: '#64748b', fontSize: 16, marginTop: 4 }}>
-              {lineup.match_date ?? ''}
-            </div>
+          <div
+            style={{
+              display: 'flex',
+              backgroundColor: 'rgba(2, 6, 23, 0.75)',
+              padding: '10px 26px',
+              borderRadius: 999,
+              color: '#fff',
+              fontSize: 30,
+              fontWeight: 800,
+              letterSpacing: 0.5,
+              alignItems: 'center',
+              gap: 16,
+            }}
+          >
+            <span>{dayName} {time}</span>
+            {pitchLabel ? <span style={{ opacity: 0.6, fontSize: 22, fontWeight: 500 }}>· {pitchLabel}</span> : null}
           </div>
         </div>
 
-        {/* Pitch container (fills remaining vertical space) */}
+        {/* Pitch container (full image) */}
         <div
           style={{
             display: 'flex',
-            flex: 1,
+            width: '100%',
+            height: '100%',
             position: 'relative',
-            backgroundColor: '#1b5e20',
-            // Subtle grass-stripe pattern using repeating linear gradient
-            backgroundImage: 'repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 60px, rgba(0,0,0,0.03) 60px 120px)',
-            borderLeft: '10px solid #fff',
-            borderRight: '10px solid #fff',
           }}
         >
           {/* Top goal area */}
@@ -417,32 +380,6 @@ export default async function handler(req: Request): Promise<Response> {
           })}
         </div>
 
-        {/* Bottom banner */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '14px 32px',
-            backgroundColor: '#0f172a',
-            borderTop: '2px solid #1e293b',
-            color: '#e2e8f0',
-            fontSize: 24,
-            fontWeight: 700,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#1a1a1a', border: '1px solid #fff', display: 'flex' }} />
-            <div style={{ display: 'flex' }}>Black {black.length}</div>
-          </div>
-          <div style={{ display: 'flex', color: '#64748b', fontSize: 20, fontWeight: 500 }}>
-            {positions.length} players
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ display: 'flex' }}>White {white.length}</div>
-            <div style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', border: '1px solid #888', display: 'flex' }} />
-          </div>
-        </div>
       </div>
     ),
     { width: 1080, height: 1920 }
