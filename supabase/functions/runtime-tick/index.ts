@@ -927,12 +927,24 @@ async function fireMomPoll(
   if (!cfg.relay_url) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'no relay_url' }); return; }
   const jwt = await ensureSenderJwt();
   if (!jwt) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'no JWT' }); return; }
-  const sendPoll = async (to: string, question: string, options: string[]): Promise<boolean> => {
+  // Relay enforces 5 polls/minute per user. If we hit 429, wait out a full
+  // rate-limit window (~65s) and retry once. Also includes a basic retry for
+  // transient 503 "WhatsApp not connected" errors.
+  const sendPoll = async (to: string, question: string, options: string[], attempt = 1): Promise<boolean> => {
     const url = cfg.relay_url.replace(/\/$/, '') + '/poll?connection=user';
     try {
       const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to, question, options, selectableCount: 1 }) });
-      if (!resp.ok) { const body = await resp.text(); await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom poll send ${resp.status}`, details: { to, body: body.substring(0, 200) } }); return false; }
-      return true;
+      if (resp.ok) return true;
+      // Retryable statuses: 429 rate-limited, 503 WhatsApp not connected (transient reconnect)
+      if ((resp.status === 429 || resp.status === 503) && attempt < 3) {
+        const waitMs = resp.status === 429 ? 65000 : 5000;
+        await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'decided', summary: `mom poll retry (${resp.status}) for ${to.slice(0, 14)}… in ${waitMs}ms`, details: { attempt, status: resp.status } });
+        await new Promise(r => setTimeout(r, waitMs));
+        return sendPoll(to, question, options, attempt + 1);
+      }
+      const body = await resp.text();
+      await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom poll send ${resp.status}`, details: { to, attempt, body: body.substring(0, 200) } });
+      return false;
     } catch (e) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom poll net err: ${(e as Error).message}` }); return false; }
   };
 
@@ -964,15 +976,31 @@ async function fireMomPoll(
   const jidById = new Map<string, string | null>();
   for (const p of (pRows ?? [])) jidById.set(p.id, p.whatsapp_jid ?? null);
 
+  // Mark the sentinel IMMEDIATELY so the next cron tick can't retry this
+  // fire mid-way through the long send loop (prevents duplicate polls).
+  // If the function dies partway, the ballots written so far are still valid —
+  // aggregation just counts whoever made it in.
+  await supabase.from('weekly_sessions').update({
+    mom_message_id: 'sending',
+    state: 'mom_sent',
+  }).eq('id', ws.id);
+
   for (const player of positions) {
     const jid = jidById.get(player.player_id) ?? null;
     if (!jid) { unmappedNames.push(player.name); continue; }
     const others = positions.filter(p => p.player_id !== player.player_id);
     const options = others.map(p => p.name);
     const ok = await sendPoll(jid, question, options);
-    if (ok) ballots.push({ recipient_player_id: player.player_id, recipient_jid: jid, poll_message_id: null, option_player_ids: others.map(p => p.player_id) });
-    // Small delay to avoid relay rate limit (10/min)
-    await new Promise(r => setTimeout(r, 800));
+    if (ok) {
+      const ballot = { recipient_player_id: player.player_id, recipient_jid: jid, poll_message_id: null, option_player_ids: others.map(p => p.player_id) };
+      ballots.push(ballot);
+      // Persist ballot incrementally so a mid-loop timeout doesn't lose what we've sent
+      await supabase.from('weekly_sessions').update({ mom_ballots: ballots }).eq('id', ws.id);
+    }
+    // Relay rate limit is 5 polls/minute → 12s/poll is the floor. We use 13s
+    // for a safety margin. For a 12-player lineup this makes the full send
+    // loop ~156s, which is well under the Edge Function wall-clock limit.
+    await new Promise(r => setTimeout(r, 13000));
   }
 
   // DM the organiser about players we couldn't reach
@@ -987,10 +1015,8 @@ async function fireMomPoll(
   }
 
   await supabase.from('weekly_sessions').update({
-    mom_ballots: ballots,
     mom_unmapped_names: unmappedNames,
     mom_message_id: ballots.length > 0 ? 'sent' : null,
-    state: 'mom_sent',
   }).eq('id', ws.id);
   await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: MoM DMs sent (${ballots.length} players reached, ${unmappedNames.length} unmapped)`, details: { ballots_count: ballots.length, unmapped_count: unmappedNames.length } });
 }
