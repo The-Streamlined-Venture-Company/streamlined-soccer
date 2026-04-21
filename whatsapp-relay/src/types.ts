@@ -213,7 +213,10 @@ export interface RelayValidationResult {
   error?: string;
 }
 
-const JID_PATTERN = /^[\d]+@(s\.whatsapp\.net|g\.us|lid)$/;
+// Accept both new-style group JIDs (`{digits}@g.us`) and legacy ones
+// (`{phone}-{timestamp}@g.us`, used when someone with that phone founded
+// the group). Users, LIDs, and s.whatsapp.net are digits-only.
+const JID_PATTERN = /^[\d]+(-\d+)?@(s\.whatsapp\.net|g\.us|lid)$/;
 
 /** Validate an auth payload */
 export function validateAuthPayload(body: unknown): RelayValidationResult {

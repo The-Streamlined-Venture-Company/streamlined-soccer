@@ -99,6 +99,7 @@ interface SessionSchedule {
   team_gen_offset_hours: number; team_gen_require_approval: boolean;
   team_force_post_minutes_before_kickoff: number;
   mom_enabled: boolean; match_duration_minutes: number; mom_delay_minutes: number; mom_results_post_minutes: number;
+  mom_method: 'auto' | 'whatsapp_poll' | 'web_link' | 'organiser_dm';
   target_players: number; min_players: number;
   callout_poll_question: string; callout_poll_options: string[];
   whatsapp_group_jid: string | null; whatsapp_group_name: string | null;
@@ -233,6 +234,8 @@ Deno.serve(async () => {
         else if (d.kind === 'nudge') await fireNudge(supabase, log, cfg, s, local, ensureSenderJwt);
         else if (d.kind === 'team_gen') await fireTeamGen(supabase, log, cfg, s, local, ensureSenderJwt, ensureSelfJid);
         else if (d.kind === 'team_force_post') await fireTeamForcePost(supabase, log, cfg, s, local, ensureSenderJwt);
+        else if (d.kind === 'mom_poll') await fireMomPoll(supabase, log, cfg, s, local, ensureSenderJwt, ensureSelfJid);
+        else if (d.kind === 'mom_results') await fireMomResults(supabase, log, cfg, s, local, ensureSenderJwt);
         else await log({ session_schedule_id: s.id, kind: 'decided', summary: `${s.name}: ${d.kind} → ${d.target} (dry-run, ${d.reason})`, details: { decision: d, local } });
       }
     }
@@ -617,7 +620,7 @@ async function fireTeamGen(
   const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
   const { data: ws, error: wsErr } = await supabase
     .from('weekly_sessions')
-    .select('id, state, signup_voter_jids, lineup_id')
+    .select('id, state, signup_voter_jids, lineup_id, forced_lineup_player_ids')
     .eq('session_schedule_id', s.id)
     .eq('match_date', matchDate)
     .single();
@@ -635,14 +638,21 @@ async function fireTeamGen(
   }
 
   const voterJids: string[] = Array.isArray(ws.signup_voter_jids) ? ws.signup_voter_jids : [];
+  const forcedPlayerIds: string[] = Array.isArray(ws.forced_lineup_player_ids) ? ws.forced_lineup_player_ids : [];
 
-  // Map voters → players. If no voter mapping exists yet (new install or no votes),
-  // fall back to top-N regulars by overall_score so the bot still produces something.
+  // Priority: (1) manually-forced player IDs, (2) map voter JIDs to players,
+  // (3) top-N regulars fallback so the bot still produces something.
   let playerSet: PlayerRow[] = [];
   let unmappedJids: string[] = [];
-  let pickStrategy: 'voters' | 'top_regulars' = 'voters';
+  let pickStrategy: 'forced' | 'voters' | 'top_regulars' = 'voters';
 
-  if (voterJids.length > 0) {
+  if (forcedPlayerIds.length > 0) {
+    const { data: forcedRaw } = await supabase
+      .from('players').select('id, name, status, preferred_position, overall_score, is_linchpin, preferred_team, whatsapp_jid')
+      .in('id', forcedPlayerIds);
+    playerSet = (forcedRaw ?? []) as PlayerRow[];
+    pickStrategy = 'forced';
+  } else if (voterJids.length > 0) {
     // Direct match on whatsapp_jid first
     const { data: directRaw } = await supabase
       .from('players').select('id, name, status, preferred_position, overall_score, is_linchpin, preferred_team, whatsapp_jid, whatsapp_phone')
@@ -799,6 +809,26 @@ async function postConfirmedLineups(
     const respText = await resp.text();
     if (!resp.ok) { await log({ session_schedule_id: s.id, kind: 'error', summary: `team post ${resp.status}`, details: { body: respText.substring(0, 300) } }); continue; }
 
+    // Post the pitch image as a second message (best-effort — if it fails we
+    // still consider the lineup posted since the text went through).
+    const imageUrl = `${APP_URL}/api/lineup-image?id=${encodeURIComponent(lineup.id)}`;
+    const mediaUrl = cfg.relay_url.replace(/\/$/, '') + '/media?connection=user';
+    try {
+      const mResp = await fetch(mediaUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+        body: JSON.stringify({ to: s.whatsapp_group_jid, type: 'image', url: imageUrl, caption: '' }),
+      });
+      if (!mResp.ok) {
+        const mBody = (await mResp.text()).substring(0, 300);
+        await log({ session_schedule_id: s.id, kind: 'error', summary: `team image post ${mResp.status} (text still sent)`, details: { image_url: imageUrl, body: mBody } });
+      } else {
+        await log({ session_schedule_id: s.id, kind: 'sent', summary: `${s.name}: pitch image posted`, details: { image_url: imageUrl } });
+      }
+    } catch (e) {
+      await log({ session_schedule_id: s.id, kind: 'error', summary: `team image net err (text still sent): ${(e as Error).message}` });
+    }
+
     // Mark lineup posted + update weekly_session
     await supabase.from('lineups').update({ status: 'posted', posted_at: new Date().toISOString() }).eq('id', lineup.id);
     if (lineup.match_date) {
@@ -851,5 +881,200 @@ async function fireTeamForcePost(
     await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: force-confirmed lineup ${lineup.id} (no organiser approval received)` });
   } else if (lineup.status === 'rejected') {
     await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: force-post skipped — lineup was rejected` });
+  }
+}
+
+// ── MoM: Man of the Match polls ─────────────────────────────────────────────
+// Two modes:
+//   'organiser_dm'  — one DM poll to the organiser, options = all lineup players.
+//                     Simpler, great for tonight's test + small-trust groups.
+//   everything else — per-player DM: each player gets a private poll with the
+//                     OTHER players as options (no self-vote). More faithful,
+//                     requires every player has a mapped whatsapp_jid.
+async function fireMomPoll(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  // deno-lint-ignore no-explicit-any
+  log: (row: any) => Promise<unknown>,
+  // deno-lint-ignore no-explicit-any
+  cfg: any,
+  s: SessionSchedule,
+  local: { dow: number; hh: number; mm: number; ymd: string },
+  ensureSenderJwt: () => Promise<string | null>,
+  ensureSelfJid: () => Promise<string | null>,
+): Promise<void> {
+  const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
+  const { data: ws } = await supabase
+    .from('weekly_sessions')
+    .select('id, state, lineup_id, mom_ballots, mom_message_id')
+    .eq('session_schedule_id', s.id)
+    .eq('match_date', matchDate)
+    .single();
+  if (!ws) { await log({ session_schedule_id: s.id, kind: 'skipped', summary: `${s.name}: mom_poll skipped — no weekly_session` }); return; }
+  if (ws.state === 'cancelled' || ws.state === 'confirmation_declined') { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_poll skipped — state '${ws.state}'` }); return; }
+  if (ws.mom_message_id) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_poll already sent` }); return; }
+  if (!ws.lineup_id) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_poll skipped — no lineup` }); return; }
+
+  // Fetch the lineup's player_positions
+  const { data: lineup } = await supabase.from('lineups').select('player_positions').eq('id', ws.lineup_id).single();
+  const positions = (Array.isArray(lineup?.player_positions) ? lineup.player_positions : []) as LineupPosition[];
+  if (positions.length === 0) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_poll: empty lineup' }); return; }
+
+  if (!cfg.relay_url) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'no relay_url' }); return; }
+  const jwt = await ensureSenderJwt();
+  if (!jwt) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'no JWT' }); return; }
+  const sendPoll = async (to: string, question: string, options: string[]): Promise<boolean> => {
+    const url = cfg.relay_url.replace(/\/$/, '') + '/poll?connection=user';
+    try {
+      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to, question, options, selectableCount: 1 }) });
+      if (!resp.ok) { const body = await resp.text(); await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom poll send ${resp.status}`, details: { to, body: body.substring(0, 200) } }); return false; }
+      return true;
+    } catch (e) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom poll net err: ${(e as Error).message}` }); return false; }
+  };
+
+  const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
+  const question = `🏆 Man of the Match — ${dayName}?`;
+
+  if (s.mom_method === 'organiser_dm') {
+    // Simpler flow: one poll DM'd to the organiser with all lineup players as options.
+    const selfJid = await ensureSelfJid();
+    if (!selfJid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_poll: no self JID' }); return; }
+    const options = positions.map(p => p.name);
+    const ok = await sendPoll(selfJid, question, options);
+    if (!ok) return;
+    // Record a single "ballot" (the organiser's DM) so the results step knows where to read
+    const ballots = [{ recipient_player_id: null, recipient_jid: selfJid, poll_message_id: null, option_player_ids: positions.map(p => p.player_id) }];
+    await supabase.from('weekly_sessions').update({ mom_ballots: ballots, mom_message_id: 'organiser', state: 'mom_sent' }).eq('id', ws.id);
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: MoM DM poll sent to organiser (${positions.length} options)`, details: { to: selfJid, question, options } });
+    return;
+  }
+
+  // Per-player DM flow (production): send a poll to each player with the OTHERS as options.
+  const ballots: Array<{ recipient_player_id: string; recipient_jid: string; poll_message_id: string | null; option_player_ids: string[] }> = [];
+  const unmappedNames: string[] = [];
+
+  // Look up the players' JIDs
+  const { data: pRows } = await supabase
+    .from('players').select('id, name, whatsapp_jid')
+    .in('id', positions.map(p => p.player_id));
+  const jidById = new Map<string, string | null>();
+  for (const p of (pRows ?? [])) jidById.set(p.id, p.whatsapp_jid ?? null);
+
+  for (const player of positions) {
+    const jid = jidById.get(player.player_id) ?? null;
+    if (!jid) { unmappedNames.push(player.name); continue; }
+    const others = positions.filter(p => p.player_id !== player.player_id);
+    const options = others.map(p => p.name);
+    const ok = await sendPoll(jid, question, options);
+    if (ok) ballots.push({ recipient_player_id: player.player_id, recipient_jid: jid, poll_message_id: null, option_player_ids: others.map(p => p.player_id) });
+    // Small delay to avoid relay rate limit (10/min)
+    await new Promise(r => setTimeout(r, 800));
+  }
+
+  // DM the organiser about players we couldn't reach
+  if (unmappedNames.length > 0) {
+    const selfJid = await ensureSelfJid();
+    if (selfJid) {
+      const text = `🏆 *MoM coverage — ${unmappedNames.length} player${unmappedNames.length === 1 ? '' : 's'} didn't get a DM*\n\n` +
+        unmappedNames.map(n => `• ${n}`).join('\n') + '\n\nAsk them directly + reply here with their picks if you want them counted.';
+      const url = cfg.relay_url.replace(/\/$/, '') + '/message?connection=user';
+      await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: selfJid, text }) }).catch(() => undefined);
+    }
+  }
+
+  await supabase.from('weekly_sessions').update({
+    mom_ballots: ballots,
+    mom_unmapped_names: unmappedNames,
+    mom_message_id: ballots.length > 0 ? 'sent' : null,
+    state: 'mom_sent',
+  }).eq('id', ws.id);
+  await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: MoM DMs sent (${ballots.length} players reached, ${unmappedNames.length} unmapped)`, details: { ballots_count: ballots.length, unmapped_count: unmappedNames.length } });
+}
+
+async function fireMomResults(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  // deno-lint-ignore no-explicit-any
+  log: (row: any) => Promise<unknown>,
+  // deno-lint-ignore no-explicit-any
+  cfg: any,
+  s: SessionSchedule,
+  local: { dow: number; hh: number; mm: number; ymd: string },
+  ensureSenderJwt: () => Promise<string | null>,
+): Promise<void> {
+  const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
+  const { data: ws } = await supabase
+    .from('weekly_sessions').select('id, state, lineup_id, mom_ballots, mom_results_message_id')
+    .eq('session_schedule_id', s.id).eq('match_date', matchDate).single();
+  if (!ws) return;
+  if (ws.state === 'cancelled' || ws.state === 'confirmation_declined') { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — state '${ws.state}'` }); return; }
+  if (ws.mom_results_message_id) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results already posted` }); return; }
+  const ballots = Array.isArray(ws.mom_ballots) ? ws.mom_ballots : [];
+  if (ballots.length === 0) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — no ballots` }); return; }
+
+  if (!cfg.relay_url) return;
+  const jwt = await ensureSenderJwt();
+  if (!jwt) return;
+
+  // For each ballot, fetch the DM chat's polls from the relay and sum the votes.
+  const tally = new Map<string, number>(); // player_id → votes
+  for (const b of ballots as Array<{ recipient_jid: string; option_player_ids: string[] }>) {
+    const url = `${cfg.relay_url.replace(/\/$/, '')}/polls?connection=user&chatJid=${encodeURIComponent(b.recipient_jid)}`;
+    try {
+      const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${jwt}` } });
+      if (!resp.ok) continue;
+      // deno-lint-ignore no-explicit-any
+      const body: any = await resp.json().catch(() => null);
+      const polls: RelayPoll[] = Array.isArray(body) ? body : (body?.data ?? []);
+      // Pick the most recent poll — that's our MoM DM
+      const poll = polls.slice().sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+      if (!poll) continue;
+      for (const r of (poll.results ?? [])) {
+        const idx = poll.options.indexOf(r.name);
+        const pid = idx >= 0 ? b.option_player_ids[idx] : null;
+        if (!pid) continue;
+        const count = Array.isArray(r.voters) ? r.voters.length : 0;
+        tally.set(pid, (tally.get(pid) ?? 0) + count);
+      }
+    } catch (_e) { /* swallow per-ballot errors */ }
+  }
+
+  // Load lineup to map ids → names
+  const { data: lineup } = await supabase.from('lineups').select('player_positions').eq('id', ws.lineup_id).single();
+  const positions = (Array.isArray(lineup?.player_positions) ? lineup.player_positions : []) as LineupPosition[];
+  const nameById = new Map<string, string>();
+  for (const p of positions) nameById.set(p.player_id, p.name);
+
+  const ranked = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+  const totalVotes = [...tally.values()].reduce((a, b) => a + b, 0);
+  const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
+
+  let body: string;
+  if (ranked.length === 0 || totalVotes === 0) {
+    body = `🏆 *Man of the Match — ${dayName}*\n\nNo votes were cast. No winner crowned this week 🤷`;
+  } else {
+    const [winnerId, winnerVotes] = ranked[0];
+    const winnerName = nameById.get(winnerId) ?? 'Unknown';
+    const firstName = winnerName.split(' ')[0];
+    let runnerUpLine = '';
+    if (ranked.length > 1 && ranked[1][1] > 0) {
+      const [ruId, ruVotes] = ranked[1];
+      runnerUpLine = `\nRunner-up: ${nameById.get(ruId) ?? '?'} (${ruVotes} vote${ruVotes === 1 ? '' : 's'})`;
+    }
+    body =
+      `🏆 *Man of the Match — ${dayName}*\n\n` +
+      `Winner: *${winnerName}* (${winnerVotes} vote${winnerVotes === 1 ? '' : 's'})${runnerUpLine}\n\n` +
+      `Nice one ${firstName} 👏`;
+  }
+
+  if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_results: no group_jid' }); return; }
+  const url = cfg.relay_url.replace(/\/$/, '') + '/message?connection=user';
+  try {
+    const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text: body }) });
+    if (!resp.ok) { const b = await resp.text(); await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom_results post ${resp.status}`, details: { body: b.substring(0, 300) } }); return; }
+    await supabase.from('weekly_sessions').update({ state: 'mom_closed', mom_results_message_id: 'sent' }).eq('id', ws.id);
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: MoM results posted (${totalVotes} total votes)`, details: { total_votes: totalVotes, ranked: ranked.map(([id, v]) => ({ name: nameById.get(id) ?? '?', votes: v })), text: body.substring(0, 400) } });
+  } catch (e) {
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom_results net err: ${(e as Error).message}` });
   }
 }

@@ -71,6 +71,54 @@ export class TenantManager {
     this.sweepTimer.unref();
   }
 
+  /**
+   * Eagerly reload + reconnect every tenant that has persisted auth_info on disk.
+   *
+   * Run on relay startup so a redeploy or platform restart doesn't leave users
+   * with a "0 tenants" / disconnected state until they manually open the app.
+   * Failures here are logged but never throw — one bad tenant shouldn't block
+   * the rest of the fleet.
+   */
+  async reloadPersistedSessions(): Promise<{ attempted: number; reconnected: number }> {
+    const tenantsDir = path.join(this.config.baseDataDir, 'tenants');
+    if (!fs.existsSync(tenantsDir)) return { attempted: 0, reconnected: 0 };
+
+    let attempted = 0;
+    let reconnected = 0;
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(tenantsDir);
+    } catch (err) {
+      console.warn('[TenantManager] reloadPersistedSessions readdir failed:', err);
+      return { attempted: 0, reconnected: 0 };
+    }
+
+    for (const entry of entries) {
+      // Filter to UUID-shaped dirs that have auth_info on disk
+      if (!UUID_PATTERN.test(entry)) continue;
+      const authDir = path.join(tenantsDir, entry, 'auth_info');
+      if (!fs.existsSync(authDir)) continue;
+
+      attempted++;
+      try {
+        const session = this.getOrCreate(entry);
+        // Fire-and-forget connect — Baileys reconnects in the background.
+        // We don't await per-tenant so a slow handshake doesn't block startup.
+        session.client.connect().then(() => {
+          reconnected++;
+          console.log(`[TenantManager] Reconnected tenant ${entry.slice(0, 8)}…`);
+        }).catch(err => {
+          console.warn(`[TenantManager] Reconnect failed for ${entry.slice(0, 8)}…:`, err instanceof Error ? err.message : err);
+        });
+      } catch (err) {
+        console.warn(`[TenantManager] Failed to reload ${entry.slice(0, 8)}…:`, err instanceof Error ? err.message : err);
+      }
+    }
+
+    console.log(`[TenantManager] reloadPersistedSessions: ${attempted} session(s) found, reconnect kicked off`);
+    return { attempted, reconnected };
+  }
+
   // ── Session Access ─────────────────────────────────────────────────────
 
   /**

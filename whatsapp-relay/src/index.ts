@@ -98,6 +98,9 @@ async function main(): Promise<void> {
     server = new RelayServer(null, null, config, tenantManager, undefined);
     server.start();
     console.log(`[Relay] Multi-tenant relay ready! (${tenantManager.activeTenantCount} tenants)`);
+    // Eagerly resume any tenants that have persisted auth_info on disk so that
+    // a redeploy or platform restart auto-reconnects everyone, no manual touch.
+    void tenantManager.reloadPersistedSessions();
   } else {
     connectionManager = new ConnectionManager({
       baseDataDir: DATA_DIR,
