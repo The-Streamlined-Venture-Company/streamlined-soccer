@@ -780,7 +780,7 @@ async function postConfirmedLineups(
 ): Promise<number> {
   const { data: lineups, error } = await supabase
     .from('lineups')
-    .select('id, name, player_positions, status, session_schedule_id, match_date, posted_at')
+    .select('id, name, player_positions, status, session_schedule_id, match_date, posted_at, updated_at')
     .eq('status', 'confirmed')
     .is('posted_at', null);
   if (error) { await log({ kind: 'error', summary: `postConfirmedLineups load: ${error.message}` }); return 0; }
@@ -811,7 +811,10 @@ async function postConfirmedLineups(
 
     // Post the pitch image as a second message (best-effort — if it fails we
     // still consider the lineup posted since the text went through).
-    const imageUrl = `${APP_URL}/api/lineup-image?id=${encodeURIComponent(lineup.id)}`;
+    // Include a cache-bust based on lineup updated_at so edits to player_positions
+    // or rendering changes propagate even with Vercel's aggressive image cache.
+    const cacheBust = lineup.updated_at ? Date.parse(lineup.updated_at) : Date.now();
+    const imageUrl = `${APP_URL}/api/lineup-image?id=${encodeURIComponent(lineup.id)}&v=${cacheBust}`;
     const mediaUrl = cfg.relay_url.replace(/\/$/, '') + '/media?connection=user';
     try {
       const mResp = await fetch(mediaUrl, {
