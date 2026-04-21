@@ -246,7 +246,17 @@ function TeamHalf({
               fontWeight: 600,
             }}
           >
-            {p.is_linchpin ? <span style={{ color: '#fbbf24', fontSize: 28 }}>★</span> : null}
+            {p.is_linchpin ? (
+              <div
+                style={{
+                  display: 'flex',
+                  width: 12,
+                  height: 12,
+                  borderRadius: 6,
+                  backgroundColor: '#fbbf24',
+                }}
+              />
+            ) : null}
             <span>{p.name}</span>
           </div>
         ))}
