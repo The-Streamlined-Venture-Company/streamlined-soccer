@@ -40,8 +40,6 @@ interface LineupPayload {
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY as string;
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
 async function fetchLineup(id: string): Promise<LineupPayload | null> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_lineup_for_image`, {
     method: 'POST',
@@ -69,13 +67,15 @@ interface Slot {
   y: number; // % within that team's half (0 = goal line, 100 = center line)
 }
 
+// y = 0 at the goal line, 100 at the center line. Values keep shirts + name
+// plates clear of the top/bottom image edges (GK >= 18, FWD <= 82).
 const FORMATION_6: Slot[] = [
-  { x: 50, y: 10 },    // GK (near goal)
-  { x: 25, y: 32 },    // DEF L
-  { x: 75, y: 32 },    // DEF R
-  { x: 25, y: 58 },    // MID L
-  { x: 75, y: 58 },    // MID R
-  { x: 50, y: 85 },    // FWD (near center)
+  { x: 50, y: 18 },    // GK (near goal)
+  { x: 25, y: 38 },    // DEF L
+  { x: 75, y: 38 },    // DEF R
+  { x: 25, y: 60 },    // MID L
+  { x: 75, y: 60 },    // MID R
+  { x: 50, y: 82 },    // FWD (near center)
 ];
 
 function slotsForTeam(n: number): Slot[] {
@@ -186,10 +186,6 @@ export default async function handler(req: Request): Promise<Response> {
   const black = positions.filter(p => p.team === 'black').sort(sortForFormation);
   const white = positions.filter(p => p.team === 'white').sort(sortForFormation);
 
-  const dayName = lineup.session ? DAYS[lineup.session.kickoff_dow] : '';
-  const time = lineup.session?.kickoff_time?.substring(0, 5) ?? '';
-  const pitchLabel = lineup.session?.pitch_label ?? '';
-
   const blackSlots = slotsForTeam(black.length);
   const whiteSlots = slotsForTeam(white.length);
 
@@ -208,39 +204,6 @@ export default async function handler(req: Request): Promise<Response> {
           border: '12px solid rgba(255,255,255,0.92)',
         }}
       >
-        {/* Title overlay — sits ON the pitch, near the top, subtle */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 24,
-            left: 0,
-            right: 0,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: 18,
-            zIndex: 5,
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              backgroundColor: 'rgba(2, 6, 23, 0.75)',
-              padding: '10px 26px',
-              borderRadius: 999,
-              color: '#fff',
-              fontSize: 30,
-              fontWeight: 800,
-              letterSpacing: 0.5,
-              alignItems: 'center',
-              gap: 16,
-            }}
-          >
-            <span>{dayName} {time}</span>
-            {pitchLabel ? <span style={{ opacity: 0.6, fontSize: 22, fontWeight: 500 }}>· {pitchLabel}</span> : null}
-          </div>
-        </div>
-
         {/* Pitch container (full image) */}
         <div
           style={{
