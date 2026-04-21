@@ -67,15 +67,16 @@ interface Slot {
   y: number; // % within that team's half (0 = goal line, 100 = center line)
 }
 
-// y = 0 at the goal line, 100 at the center line. Values keep shirts + name
-// plates clear of the top/bottom image edges (GK >= 18, FWD <= 82).
+// y = 0 at the goal line, 100 at the center line. Equal 25% spacing between
+// rows keeps each row visually distinct — tighter than this and the shirts
+// crowd each other in mobile previews.
 const FORMATION_6: Slot[] = [
-  { x: 50, y: 18 },    // GK (near goal)
-  { x: 25, y: 38 },    // DEF L
-  { x: 75, y: 38 },    // DEF R
+  { x: 50, y: 10 },    // GK (near goal)
+  { x: 25, y: 35 },    // DEF L
+  { x: 75, y: 35 },    // DEF R
   { x: 25, y: 60 },    // MID L
   { x: 75, y: 60 },    // MID R
-  { x: 50, y: 82 },    // FWD (near center)
+  { x: 50, y: 85 },    // FWD (near center)
 ];
 
 function slotsForTeam(n: number): Slot[] {

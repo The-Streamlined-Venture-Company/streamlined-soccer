@@ -559,6 +559,14 @@ function balanceTeams(players: PlayerRow[]): { black: PlayerRow[]; white: Player
   return { black, white };
 }
 
+/** Lean one-line caption that appears below the pitch image in WhatsApp. */
+function renderTeamsCaption(s: SessionSchedule): string {
+  const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
+  const time = s.kickoff_time?.substring(0, 5) ?? '';
+  const pitch = s.pitch_label ? ` · ${s.pitch_label}` : '';
+  return `🏟 *${dayName} ${time}*${pitch}\n\nLate dropouts? Let me know.`;
+}
+
 function renderTeamAnnouncement(s: SessionSchedule, lineup: LineupPosition[]): string {
   const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
   const time = s.kickoff_time?.substring(0, 5) ?? '';
@@ -801,35 +809,29 @@ async function postConfirmedLineups(
     const jwt = await ensureSenderJwt();
     if (!jwt) continue;
 
-    const text = renderTeamAnnouncement(s, positions);
-    const url = cfg.relay_url.replace(/\/$/, '') + '/message?connection=user';
-    let resp: Response;
-    try { resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text }) }); }
-    catch (e) { await log({ session_schedule_id: s.id, kind: 'error', summary: `team post net err: ${(e as Error).message}` }); continue; }
-    const respText = await resp.text();
-    if (!resp.ok) { await log({ session_schedule_id: s.id, kind: 'error', summary: `team post ${resp.status}`, details: { body: respText.substring(0, 300) } }); continue; }
-
-    // Post the pitch image as a second message (best-effort — if it fails we
-    // still consider the lineup posted since the text went through).
-    // Include a cache-bust based on lineup updated_at so edits to player_positions
-    // or rendering changes propagate even with Vercel's aggressive image cache.
+    // Post ONLY the pitch image (with a short caption). Text roster list is
+    // redundant once the visual is there — the user explicitly asked for image-only.
+    // Cache-bust based on lineup updated_at so rendering changes propagate
+    // even with Vercel's aggressive image-response cache.
     const cacheBust = lineup.updated_at ? Date.parse(lineup.updated_at) : Date.now();
     const imageUrl = `${APP_URL}/api/lineup-image?id=${encodeURIComponent(lineup.id)}&v=${cacheBust}`;
+    const caption = renderTeamsCaption(s);
     const mediaUrl = cfg.relay_url.replace(/\/$/, '') + '/media?connection=user';
+    let mResp: Response;
     try {
-      const mResp = await fetch(mediaUrl, {
+      mResp = await fetch(mediaUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
-        body: JSON.stringify({ to: s.whatsapp_group_jid, type: 'image', url: imageUrl, caption: '' }),
+        body: JSON.stringify({ to: s.whatsapp_group_jid, type: 'image', url: imageUrl, caption }),
       });
-      if (!mResp.ok) {
-        const mBody = (await mResp.text()).substring(0, 300);
-        await log({ session_schedule_id: s.id, kind: 'error', summary: `team image post ${mResp.status} (text still sent)`, details: { image_url: imageUrl, body: mBody } });
-      } else {
-        await log({ session_schedule_id: s.id, kind: 'sent', summary: `${s.name}: pitch image posted`, details: { image_url: imageUrl } });
-      }
     } catch (e) {
-      await log({ session_schedule_id: s.id, kind: 'error', summary: `team image net err (text still sent): ${(e as Error).message}` });
+      await log({ session_schedule_id: s.id, kind: 'error', summary: `team image net err: ${(e as Error).message}` });
+      continue;
+    }
+    if (!mResp.ok) {
+      const mBody = (await mResp.text()).substring(0, 300);
+      await log({ session_schedule_id: s.id, kind: 'error', summary: `team image post ${mResp.status}`, details: { image_url: imageUrl, body: mBody } });
+      continue;
     }
 
     // Mark lineup posted + update weekly_session
@@ -838,7 +840,7 @@ async function postConfirmedLineups(
       await supabase.from('weekly_sessions').update({ state: 'teams_posted' })
         .eq('session_schedule_id', s.id).eq('match_date', lineup.match_date);
     }
-    await log({ session_schedule_id: s.id, kind: 'sent', summary: `${s.name}: teams posted to ${s.whatsapp_group_name ?? s.whatsapp_group_jid} (lineup ${lineup.id})`, details: { lineup_id: lineup.id, players: positions.length, text: text.substring(0, 300) } });
+    await log({ session_schedule_id: s.id, kind: 'sent', summary: `${s.name}: teams (image) posted to ${s.whatsapp_group_name ?? s.whatsapp_group_jid}`, details: { lineup_id: lineup.id, players: positions.length, image_url: imageUrl, caption } });
     posted++;
   }
   return posted;
