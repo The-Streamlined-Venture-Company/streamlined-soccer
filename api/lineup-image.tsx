@@ -71,13 +71,15 @@ interface Slot {
 // instead of 4 so everything fits in WhatsApp's 4:5 uncropped preview.
 // Works for typical 6-a-side where everyone rotates rather than having a
 // dedicated GK.
+// 1-2-2-1 (classic 6-a-side). GK y ≥ 15 and FWD y ≤ 87 so the top/bottom
+// row shirts don't get clipped at the image edges in WhatsApp's 4:5 preview.
 const FORMATION_6: Slot[] = [
-  { x: 26, y: 15 },    // Back L
-  { x: 74, y: 15 },    // Back R
-  { x: 26, y: 50 },    // Mid L
-  { x: 74, y: 50 },    // Mid R
-  { x: 26, y: 85 },    // Fwd L
-  { x: 74, y: 85 },    // Fwd R
+  { x: 50, y: 15 },    // GK (near goal)
+  { x: 25, y: 39 },    // DEF L
+  { x: 75, y: 39 },    // DEF R
+  { x: 25, y: 63 },    // MID L
+  { x: 75, y: 63 },    // MID R
+  { x: 50, y: 87 },    // FWD (near center)
 ];
 
 function slotsForTeam(n: number): Slot[] {
@@ -110,7 +112,7 @@ const SHIRT_PATH =
 
 function BlackShirt() {
   return (
-    <svg viewBox="0 0 100 100" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 100 100" width="128" height="128" xmlns="http://www.w3.org/2000/svg">
       <path d={SHIRT_PATH} fill="#0a0a0a" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
     </svg>
   );
@@ -118,7 +120,7 @@ function BlackShirt() {
 
 function WhiteShirt() {
   return (
-    <svg viewBox="0 0 100 100" width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 100 100" width="128" height="128" xmlns="http://www.w3.org/2000/svg">
       <path d={SHIRT_PATH} fill="#ffffff" stroke="rgba(0,0,0,0.15)" strokeWidth="1" />
     </svg>
   );
