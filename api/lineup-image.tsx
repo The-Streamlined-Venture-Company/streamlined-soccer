@@ -135,11 +135,12 @@ export default async function handler(req: Request): Promise<Response> {
           ) : null}
         </div>
 
-        {/* Pitch */}
+        {/* Pitch — vertical layout: black half on TOP, white on BOTTOM */}
         <div
           style={{
             display: 'flex',
             flex: 1,
+            flexDirection: 'column',
             backgroundColor: '#064e3b',
             borderRadius: 18,
             position: 'relative',
@@ -147,16 +148,17 @@ export default async function handler(req: Request): Promise<Response> {
             overflow: 'hidden',
           }}
         >
-          {/* Centre line */}
+          {/* Centre line — horizontal across the middle */}
           <div
             style={{
               position: 'absolute',
-              left: '50%',
-              top: 0,
-              bottom: 0,
-              width: 4,
+              top: '50%',
+              left: 0,
+              right: 0,
+              height: 4,
               backgroundColor: '#94a3b8',
-              transform: 'translateX(-50%)',
+              transform: 'translateY(-50%)',
+              display: 'flex',
             }}
           />
           {/* Centre circle */}
@@ -165,24 +167,24 @@ export default async function handler(req: Request): Promise<Response> {
               position: 'absolute',
               left: '50%',
               top: '50%',
-              width: 120,
-              height: 120,
-              borderRadius: 60,
+              width: 160,
+              height: 160,
+              borderRadius: 80,
               border: '4px solid #94a3b8',
               transform: 'translate(-50%, -50%)',
               display: 'flex',
             }}
           />
 
-          {/* Black half (left) */}
+          {/* Black half (TOP) */}
           <TeamHalf players={black} team="black" />
-          {/* White half (right) */}
+          {/* White half (BOTTOM) */}
           <TeamHalf players={white} team="white" />
         </div>
 
         {/* Footer stats */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16, fontSize: 18 }}>
-          <div style={{ display: 'flex', color: '#e2e8f0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20, fontSize: 22 }}>
+          <div style={{ display: 'flex', color: '#e2e8f0', fontWeight: 700 }}>
             ⚫ {black.length} vs {white.length} ⚪
           </div>
           <div style={{ display: 'flex', color: '#64748b' }}>
@@ -191,7 +193,7 @@ export default async function handler(req: Request): Promise<Response> {
         </div>
       </div>
     ),
-    { width: 1080, height: 1080 }
+    { width: 1080, height: 1920 }
   );
 }
 
@@ -204,46 +206,47 @@ function TeamHalf({
 }) {
   const emoji = team === 'black' ? '⚫' : '⚪';
   const label = team === 'black' ? 'Black' : 'White';
-  const align = team === 'black' ? 'flex-start' : 'flex-end';
   return (
     <div
       style={{
         display: 'flex',
         flexDirection: 'column',
-        width: '50%',
-        padding: 20,
-        alignItems: align,
+        height: '50%',
+        width: '100%',
+        padding: 24,
+        alignItems: 'center',
+        justifyContent: team === 'black' ? 'flex-start' : 'flex-end',
       }}
     >
       <div
         style={{
           display: 'flex',
-          fontSize: 24,
+          fontSize: 32,
           fontWeight: 900,
-          letterSpacing: 2,
-          marginBottom: 10,
-          color: team === 'black' ? '#f1f5f9' : '#f1f5f9',
+          letterSpacing: 3,
+          marginBottom: 16,
+          color: '#f1f5f9',
         }}
       >
         {emoji} {label.toUpperCase()} ({players.length})
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
         {players.map(p => (
           <div
             key={p.player_id}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 10,
-              padding: '6px 14px',
+              gap: 12,
+              padding: '10px 22px',
               backgroundColor: team === 'black' ? 'rgba(15, 23, 42, 0.85)' : 'rgba(241, 245, 249, 0.95)',
               color: team === 'black' ? '#f1f5f9' : '#0f172a',
               borderRadius: 999,
-              fontSize: 22,
+              fontSize: 30,
               fontWeight: 600,
             }}
           >
-            {p.is_linchpin ? <span style={{ color: '#fbbf24' }}>★</span> : null}
+            {p.is_linchpin ? <span style={{ color: '#fbbf24', fontSize: 28 }}>★</span> : null}
             <span>{p.name}</span>
           </div>
         ))}
