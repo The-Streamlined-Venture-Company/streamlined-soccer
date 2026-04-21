@@ -815,14 +815,13 @@ async function postConfirmedLineups(
     // even with Vercel's aggressive image-response cache.
     const cacheBust = lineup.updated_at ? Date.parse(lineup.updated_at) : Date.now();
     const imageUrl = `${APP_URL}/api/lineup-image?id=${encodeURIComponent(lineup.id)}&v=${cacheBust}`;
-    const caption = renderTeamsCaption(s);
     const mediaUrl = cfg.relay_url.replace(/\/$/, '') + '/media?connection=user';
     let mResp: Response;
     try {
       mResp = await fetch(mediaUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
-        body: JSON.stringify({ to: s.whatsapp_group_jid, type: 'image', url: imageUrl, caption }),
+        body: JSON.stringify({ to: s.whatsapp_group_jid, type: 'image', url: imageUrl }),
       });
     } catch (e) {
       await log({ session_schedule_id: s.id, kind: 'error', summary: `team image net err: ${(e as Error).message}` });
@@ -840,7 +839,7 @@ async function postConfirmedLineups(
       await supabase.from('weekly_sessions').update({ state: 'teams_posted' })
         .eq('session_schedule_id', s.id).eq('match_date', lineup.match_date);
     }
-    await log({ session_schedule_id: s.id, kind: 'sent', summary: `${s.name}: teams (image) posted to ${s.whatsapp_group_name ?? s.whatsapp_group_jid}`, details: { lineup_id: lineup.id, players: positions.length, image_url: imageUrl, caption } });
+    await log({ session_schedule_id: s.id, kind: 'sent', summary: `${s.name}: teams (image) posted to ${s.whatsapp_group_name ?? s.whatsapp_group_jid}`, details: { lineup_id: lineup.id, players: positions.length, image_url: imageUrl } });
     posted++;
   }
   return posted;

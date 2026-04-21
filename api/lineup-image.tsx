@@ -67,16 +67,17 @@ interface Slot {
   y: number; // % within that team's half (0 = goal line, 100 = center line)
 }
 
-// y = 0 at the goal line, 100 at the center line. Equal 25% spacing between
-// rows keeps each row visually distinct — tighter than this and the shirts
-// crowd each other in mobile previews.
+// y = 0 at the goal line, 100 at the center line. 2-2-2 formation (3 rows)
+// instead of 4 so everything fits in WhatsApp's 4:5 uncropped preview.
+// Works for typical 6-a-side where everyone rotates rather than having a
+// dedicated GK.
 const FORMATION_6: Slot[] = [
-  { x: 50, y: 10 },    // GK (near goal)
-  { x: 25, y: 35 },    // DEF L
-  { x: 75, y: 35 },    // DEF R
-  { x: 25, y: 60 },    // MID L
-  { x: 75, y: 60 },    // MID R
-  { x: 50, y: 85 },    // FWD (near center)
+  { x: 28, y: 17 },    // Back L
+  { x: 72, y: 17 },    // Back R
+  { x: 28, y: 50 },    // Mid L
+  { x: 72, y: 50 },    // Mid R
+  { x: 28, y: 83 },    // Fwd L
+  { x: 72, y: 83 },    // Fwd R
 ];
 
 function slotsForTeam(n: number): Slot[] {
@@ -346,6 +347,7 @@ export default async function handler(req: Request): Promise<Response> {
 
       </div>
     ),
-    { width: 1080, height: 1920 }
+    // 4:5 portrait — WhatsApp shows this ratio in chat preview without cropping.
+    { width: 1080, height: 1350 }
   );
 }
