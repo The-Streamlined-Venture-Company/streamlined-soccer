@@ -25,11 +25,27 @@ interface LineupPlayerOption {
 
 interface VotePage {
   weekly_session_id: string;
+  schedule_name: string | null;
   match_date: string | null;
   voting_closed: boolean;
   /** When voting closes and the winner is posted. null if unknown. */
   results_at: string | null;
+  /** Length of the voting window in minutes — used for the "you have X to vote" copy. */
+  voting_window_minutes: number | null;
   players: LineupPlayerOption[];
+}
+
+interface TopEntry {
+  player_id: string;
+  name: string;
+  votes: number;
+}
+
+interface CastVoteResponse {
+  ok: boolean;
+  error?: string;
+  total_voters?: number;
+  top?: TopEntry[];
 }
 
 function formatResultsAt(iso: string): string {
@@ -40,6 +56,17 @@ function formatResultsAt(iso: string): string {
     return iso;
   }
 }
+
+function formatWindow(minutes: number | null | undefined): string {
+  if (!minutes || minutes <= 0) return '';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0 && m === 0) return h === 1 ? '1 hour' : `${h} hours`;
+  if (h > 0 && m > 0) return `${h === 1 ? '1 hour' : `${h} hours`} ${m} min`;
+  return `${m} min`;
+}
+
+const MEDALS = ['🥇', '🥈', '🥉'] as const;
 
 // Get or create a stable per-device fingerprint. Persists across tabs / visits
 // on the same browser. Used as the dedup key — not for identification.
@@ -64,6 +91,8 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submittedId, setSubmittedId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [top, setTop] = useState<TopEntry[] | null>(null);
+  const [totalVoters, setTotalVoters] = useState<number | null>(null);
 
   const fingerprint = useMemo(() => ensureFingerprint(), []);
 
@@ -86,7 +115,7 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
     setError(null);
     const { data, error: rpcErr } = await (supabase.rpc as unknown as (name: string, args: unknown) => Promise<{ data: unknown; error: { message: string } | null }>)(
       'get_mom_vote_page',
-      { p_token: token }
+      { p_token: token, p_fingerprint: fingerprint }
     );
     if (rpcErr) {
       setError(rpcErr.message);
@@ -95,10 +124,18 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
       setError('This voting link is invalid or has expired.');
       setPage(null);
     } else {
-      setPage(data as VotePage);
+      const payload = data as VotePage & { your_vote?: string; total_voters?: number; top?: TopEntry[] };
+      setPage(payload);
+      // If the server says we've voted (even on a fresh tab), restore the post-vote UI.
+      if (payload.your_vote) {
+        setSubmittedId(payload.your_vote);
+        try { localStorage.setItem(`mom-vote-${token}`, payload.your_vote); } catch { /* ignore */ }
+      }
+      if (payload.top) setTop(payload.top);
+      if (typeof payload.total_voters === 'number') setTotalVoters(payload.total_voters);
     }
     setIsLoading(false);
-  }, [token]);
+  }, [token, fingerprint]);
 
   useEffect(() => {
     void load();
@@ -117,7 +154,7 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
       setError(rpcErr.message);
       return;
     }
-    const res = data as { ok: boolean; error?: string } | null;
+    const res = data as CastVoteResponse | null;
     if (!res?.ok) {
       const errMap: Record<string, string> = {
         invalid_token: 'This voting link is invalid.',
@@ -130,6 +167,8 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
       return;
     }
     setSubmittedId(selectedId);
+    setTop(res.top ?? []);
+    setTotalVoters(res.total_voters ?? null);
     try {
       localStorage.setItem(`mom-vote-${token}`, selectedId);
     } catch { /* ignore */ }
@@ -176,15 +215,21 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
         month: 'short',
       })
     : '';
+  const windowText = formatWindow(page.voting_window_minutes);
 
   return (
     <div className="min-h-screen bg-[#020617] text-white pb-28">
       <header className="px-4 md:px-8 py-6 border-b border-slate-900">
         <div className="max-w-2xl mx-auto">
+          {page.schedule_name && (
+            <div className="text-white text-lg md:text-xl font-black uppercase tracking-[0.15em] mb-1">
+              {page.schedule_name}
+            </div>
+          )}
           <div className="text-emerald-400 text-[10px] font-black uppercase tracking-[0.3em] mb-1">
             Streamlined Soccer
           </div>
-          <h1 className="text-3xl md:text-4xl font-black uppercase italic tracking-tight leading-none">
+          <h1 className="text-3xl md:text-4xl font-black uppercase italic tracking-tight leading-none mt-1">
             🏆 Man of the Match
           </h1>
           {matchDate && (
@@ -194,6 +239,11 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
             Pick the player you think deserved it.{' '}
             <span className="text-slate-400">Your vote is anonymous.</span>
           </p>
+          {windowText && !submittedId && (
+            <p className="text-amber-300/90 text-xs mt-2 font-semibold">
+              ⏱ You have {windowText} to vote
+            </p>
+          )}
         </div>
       </header>
 
@@ -218,6 +268,42 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
               <div className="mt-2 text-emerald-300/70 text-xs">
                 Your vote is anonymous. Tap a different name below to change it.
               </div>
+            </div>
+          )}
+
+          {submittedId && top && top.length > 0 && (
+            <div className="mb-6 p-4 bg-slate-900/60 border border-slate-800 rounded-xl">
+              <div className="flex items-baseline justify-between mb-3">
+                <div className="text-[10px] font-black uppercase tracking-[0.3em] text-amber-400">
+                  Live standings
+                </div>
+                {totalVoters !== null && (
+                  <div className="text-slate-500 text-[11px]">
+                    {totalVoters} {totalVoters === 1 ? 'vote' : 'votes'} cast
+                  </div>
+                )}
+              </div>
+              <ol className="space-y-2">
+                {top.map((entry, i) => (
+                  <li
+                    key={entry.player_id}
+                    className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-slate-950/40"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-2xl flex-shrink-0">{MEDALS[i]}</span>
+                      <span className={`font-semibold truncate ${i === 0 ? 'text-white' : 'text-slate-200'}`}>
+                        {entry.name}
+                      </span>
+                    </div>
+                    <span className="text-slate-400 text-sm font-medium tabular-nums flex-shrink-0">
+                      {entry.votes} {entry.votes === 1 ? 'vote' : 'votes'}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              <p className="text-slate-500 text-[11px] mt-3 leading-snug">
+                Final winner posted in the group when voting closes.
+              </p>
             </div>
           )}
 

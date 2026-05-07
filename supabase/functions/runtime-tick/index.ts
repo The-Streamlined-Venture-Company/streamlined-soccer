@@ -1036,10 +1036,18 @@ async function fireMomPoll(
     if (tokErr) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom_poll token save: ${tokErr.message}` }); return; }
     const link = `${APP_URL}/mom/${voteToken}`;
     const windowMin = s.mom_results_post_minutes;
+    // Humanise: 60 → "1 hour", 90 → "1 hour 30 min", 30 → "30 min".
+    const windowText = (() => {
+      const h = Math.floor(windowMin / 60);
+      const m = windowMin % 60;
+      if (h > 0 && m === 0) return h === 1 ? '1 hour' : `${h} hours`;
+      if (h > 0 && m > 0) return `${h === 1 ? '1 hour' : `${h} hours`} ${m} min`;
+      return `${m} min`;
+    })();
     const text =
       `🏆 *Man of the Match — ${question.replace('🏆 Man of the Match — ', '').replace('?','')}*\n\n` +
       `Vote privately — anonymous.\n${link}\n\n` +
-      `You have *${windowMin} min* to cast your vote ⏱`;
+      `You have *${windowText}* to cast your vote ⏱`;
     const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
     try {
       const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text }) });
