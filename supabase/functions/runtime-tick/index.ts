@@ -4,6 +4,19 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const APP_URL = Deno.env.get('APP_URL') ?? 'https://streamlined-soccer-cyan.vercel.app';
+// Multi-tenant: one shared Railway relay across all clubs (the relay itself is
+// multi-tenant, keyed by user_id). Falls back to the original prod URL if not set.
+const RELAY_URL = Deno.env.get('RELAY_URL') ?? 'https://soccer-whatsapp-relay-production.up.railway.app';
+
+// Per-club context passed through every fire helper. Replaces the old
+// "cfg" (organiser_config) singleton.
+interface Club {
+  id: string;
+  name: string;
+  timezone: string;
+  bot_persona: string;
+  enabled: boolean;
+}
 
 const DAY_TO_NUM: Record<string, number> = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
 
@@ -121,10 +134,9 @@ interface LineupPosition {
 
 interface RelayPoll { chatJid: string; messageId: string; question: string; options: string[]; results: Array<{ name: string; voters: string[] }>; totalVotes: number; createdAt?: number; }
 
-async function fetchSenderSelfJid(cfg: { relay_url?: string }, jwt: string): Promise<string | null> {
-  if (!cfg.relay_url) return null;
+async function fetchSenderSelfJid(jwt: string): Promise<string | null> {
   try {
-    const resp = await fetch(`${cfg.relay_url.replace(/\/$/, '')}/status?connection=user`, { headers: { 'Authorization': `Bearer ${jwt}` } });
+    const resp = await fetch(`${RELAY_URL.replace(/\/$/, '')}/status?connection=user`, { headers: { 'Authorization': `Bearer ${jwt}` } });
     if (!resp.ok) return null;
     const body = await resp.json().catch(() => null);
     const phone: string | undefined = body?.data?.phoneNumber ?? body?.phoneNumber;
@@ -137,124 +149,165 @@ async function fetchSenderSelfJid(cfg: { relay_url?: string }, jwt: string): Pro
 async function getOrCreateWeeklySession(
   // deno-lint-ignore no-explicit-any
   supabase: any,
-  scheduleId: string, matchDate: string, kickoffAt: string,
+  clubId: string, scheduleId: string, matchDate: string, kickoffAt: string,
   // deno-lint-ignore no-explicit-any
   log: (row: any) => Promise<unknown>,
 ): Promise<{ id: string; state: string; confirmation_token: string | null } | null> {
   const { data: ins, error: insErr } = await supabase
     .from('weekly_sessions')
-    .insert({ session_schedule_id: scheduleId, match_date: matchDate, kickoff_at: kickoffAt, state: 'pending' })
+    .insert({ club_id: clubId, session_schedule_id: scheduleId, match_date: matchDate, kickoff_at: kickoffAt, state: 'pending' })
     .select('id, state, confirmation_token').single();
   if (!insErr && ins) return ins;
   if (insErr && insErr.code === '23505') {
     const { data: existing, error: selErr } = await supabase
       .from('weekly_sessions').select('id, state, confirmation_token')
       .eq('session_schedule_id', scheduleId).eq('match_date', matchDate).single();
-    if (selErr) { await log({ kind: 'error', summary: `weekly_sessions select after conflict: ${selErr.message}` }); return null; }
+    if (selErr) { await log({ kind: 'error', summary: `weekly_sessions select after conflict: ${selErr.message}`, club_id: clubId }); return null; }
     return existing;
   }
-  await log({ kind: 'error', summary: `weekly_sessions insert: ${insErr?.message ?? 'unknown'}` });
+  await log({ kind: 'error', summary: `weekly_sessions insert: ${insErr?.message ?? 'unknown'}`, club_id: clubId });
   return null;
 }
 
 Deno.serve(async () => {
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { db: { schema: 'soccer' as const } });
-  const log = (row: { kind: string; summary: string; details?: unknown; session_schedule_id?: string; weekly_session_id?: string }) =>
+  // Multi-tenant log: club_id is optional (system-wide events leave it null).
+  const log = (row: { kind: string; summary: string; details?: unknown; session_schedule_id?: string; weekly_session_id?: string; club_id?: string }) =>
     supabase.from('runtime_events').insert({
       kind: row.kind, summary: row.summary,
       details: row.details ? JSON.parse(JSON.stringify(row.details)) : null,
       session_schedule_id: row.session_schedule_id ?? null,
       weekly_session_id: row.weekly_session_id ?? null,
+      club_id: row.club_id ?? null,
     });
 
   try {
     const now = new Date();
-    const { data: cfg, error: cfgErr } = await supabase.from('organiser_config').select('*').eq('id', 1).single();
-    if (cfgErr || !cfg) { await log({ kind: 'error', summary: `organiser_config: ${cfgErr?.message ?? 'no row'}` }); return new Response('config error', { status: 500 }); }
-    if (!cfg.enabled) { await log({ kind: 'tick', summary: 'Auto-organiser disabled — skipping' }); return new Response(JSON.stringify({ status: 'disabled' }), { headers: { 'Content-Type': 'application/json' } }); }
 
-    const tz: string = cfg.timezone || 'UTC';
-    const local = localComponents(now, tz);
-    const nowMinutes = local.hh * 60 + local.mm;
-
-    const { data: schedules } = await supabase.from('session_schedules').select('*').eq('enabled', true);
-    const { data: organisers } = await supabase.from('app_users').select('id, role').in('role', ['admin', 'organiser']).limit(1);
-    const senderUserId: string | null = organisers?.[0]?.id ?? null;
-
-    let jwtSecret: string | null = null;
-    let cachedSenderJwt: string | null = null;
-    let cachedSelfJid: string | null = null;
-    const ensureSenderJwt = async (): Promise<string | null> => {
-      if (cachedSenderJwt) return cachedSenderJwt;
-      if (!senderUserId) return null;
-      if (!jwtSecret) {
-        const { data, error } = await supabase.rpc('get_jwt_secret');
-        if (error || typeof data !== 'string' || !data) { await log({ kind: 'error', summary: `jwt_secret: ${error?.message ?? 'empty'}` }); return null; }
-        jwtSecret = data;
-      }
-      try { cachedSenderJwt = await mintUserJwt(senderUserId, jwtSecret); return cachedSenderJwt; }
-      catch (e) { await log({ kind: 'error', summary: `mint JWT: ${(e as Error).message}` }); return null; }
-    };
-    const ensureSelfJid = async (): Promise<string | null> => {
-      if (cachedSelfJid) return cachedSelfJid;
-      const jwt = await ensureSenderJwt(); if (!jwt) return null;
-      cachedSelfJid = await fetchSenderSelfJid(cfg, jwt);
-      return cachedSelfJid;
-    };
-
-    const decisions: Array<Record<string, unknown>> = [];
-    for (const s of (schedules ?? []) as SessionSchedule[]) {
-      type Decision = { kind: string; target: 'group' | 'self_dm'; reason: string };
-      const fires: Decision[] = [];
-      if (s.confirmation_enabled && s.confirmation_time) {
-        const cDow = dowDaysBefore(s.weekly_post_dow, s.confirmation_days_before);
-        if (local.dow === cDow && nowMinutes === timeToMinutes(s.confirmation_time)) fires.push({ kind: 'confirmation_dm', target: 'self_dm', reason: `${s.confirmation_days_before}d before call-out at ${s.confirmation_time}` });
-      }
-      if (local.dow === s.weekly_post_dow && nowMinutes === timeToMinutes(s.weekly_post_time)) fires.push({ kind: 'callout_poll', target: 'group', reason: `weekly_post at ${s.weekly_post_time}` });
-      if (s.nudge_enabled && s.nudge_time) {
-        const nDow = dowDaysBefore(s.kickoff_dow, s.nudge_days_before);
-        if (local.dow === nDow && nowMinutes === timeToMinutes(s.nudge_time)) fires.push({ kind: 'nudge', target: 'group', reason: `${s.nudge_days_before === 0 ? 'same day' : `${s.nudge_days_before}d before`} at ${s.nudge_time}` });
-      }
-      const tMin = timeToMinutes(s.kickoff_time) - Math.round(Number(s.team_gen_offset_hours) * 60);
-      if (local.dow === s.kickoff_dow && nowMinutes === tMin) fires.push({ kind: 'team_gen', target: s.team_gen_require_approval ? 'self_dm' : 'group', reason: `${s.team_gen_offset_hours}h before kickoff` });
-      // Force-post fallback: at kickoff_time - team_force_post_minutes_before_kickoff
-      const forceMin = timeToMinutes(s.kickoff_time) - Number(s.team_force_post_minutes_before_kickoff ?? 30);
-      if (local.dow === s.kickoff_dow && nowMinutes === forceMin) fires.push({ kind: 'team_force_post', target: 'group', reason: `${s.team_force_post_minutes_before_kickoff}min before kickoff — force-post if pending` });
-      if (s.mom_enabled) {
-        const kMin = timeToMinutes(s.kickoff_time);
-        const mMin = kMin + Number(s.match_duration_minutes) + Number(s.mom_delay_minutes);
-        if (local.dow === s.kickoff_dow && nowMinutes === mMin) fires.push({ kind: 'mom_poll', target: 'group', reason: `MoM time` });
-        const rMin = mMin + Number(s.mom_results_post_minutes);
-        if (local.dow === s.kickoff_dow && nowMinutes === rMin) fires.push({ kind: 'mom_results', target: 'group', reason: `voting closed` });
-      }
-      for (const d of fires) {
-        decisions.push({ schedule_id: s.id, schedule: s.name, ...d });
-        if (d.kind === 'callout_poll') await fireCalloutPoll(supabase, log, cfg, s, local, ensureSenderJwt);
-        else if (d.kind === 'confirmation_dm') await fireConfirmationDm(supabase, log, cfg, s, local, ensureSenderJwt, ensureSelfJid);
-        else if (d.kind === 'nudge') await fireNudge(supabase, log, cfg, s, local, ensureSenderJwt);
-        else if (d.kind === 'team_gen') await fireTeamGen(supabase, log, cfg, s, local, ensureSenderJwt, ensureSelfJid);
-        else if (d.kind === 'team_force_post') await fireTeamForcePost(supabase, log, cfg, s, local, ensureSenderJwt);
-        else if (d.kind === 'mom_poll') await fireMomPoll(supabase, log, cfg, s, local, ensureSenderJwt, ensureSelfJid);
-        else if (d.kind === 'mom_results') await fireMomResults(supabase, log, cfg, s, local, ensureSenderJwt);
-        else await log({ session_schedule_id: s.id, kind: 'decided', summary: `${s.name}: ${d.kind} → ${d.target} (dry-run, ${d.reason})`, details: { decision: d, local } });
-      }
+    // Outer loop: enabled clubs. (Multi-tenant change from singleton organiser_config.)
+    const { data: clubs, error: clubsErr } = await supabase
+      .from('clubs')
+      .select('id, name, timezone, bot_persona, enabled')
+      .eq('enabled', true);
+    if (clubsErr) { await log({ kind: 'error', summary: `clubs load: ${clubsErr.message}` }); return new Response('clubs error', { status: 500 }); }
+    if (!clubs || clubs.length === 0) {
+      await log({ kind: 'tick', summary: 'No enabled clubs — skipping' });
+      return new Response(JSON.stringify({ status: 'no_clubs' }), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    let refreshed = 0;
-    try { refreshed += await refreshActiveSignups(supabase, log, cfg, ensureSenderJwt, schedules ?? []); }
-    catch (e) { await log({ kind: 'error', summary: `refresh signups crashed: ${(e as Error).message}`, details: { stack: (e as Error).stack?.substring(0, 500) } }); }
+    // JWT secret is per-project, fetch once for all clubs.
+    let jwtSecret: string | null = null;
+    const ensureJwtSecret = async (): Promise<string | null> => {
+      if (jwtSecret) return jwtSecret;
+      const { data, error } = await supabase.rpc('get_jwt_secret');
+      if (error || typeof data !== 'string' || !data) { await log({ kind: 'error', summary: `jwt_secret: ${error?.message ?? 'empty'}` }); return null; }
+      jwtSecret = data;
+      return jwtSecret;
+    };
 
-    // Watch for confirmed-but-not-yet-posted lineups every tick (organiser confirmed via /approve link)
-    let posted = 0;
-    try { posted += await postConfirmedLineups(supabase, log, cfg, ensureSenderJwt); }
-    catch (e) { await log({ kind: 'error', summary: `post confirmed lineups crashed: ${(e as Error).message}`, details: { stack: (e as Error).stack?.substring(0, 500) } }); }
+    const allDecisions: Array<Record<string, unknown>> = [];
+    let totalRefreshed = 0;
+    let totalPosted = 0;
+    const tickSummaries: string[] = [];
 
-    const extras = [refreshed ? `refreshed ${refreshed}` : '', posted ? `posted ${posted}` : ''].filter(Boolean).join(', ');
-    const summary = decisions.length === 0
-      ? `Tick at ${local.ymd} ${String(local.hh).padStart(2,'0')}:${String(local.mm).padStart(2,'0')} ${tz} — no fires${extras ? `, ${extras}` : ''}`
-      : `Tick at ${local.ymd} ${String(local.hh).padStart(2,'0')}:${String(local.mm).padStart(2,'0')} ${tz} — ${decisions.length} fire(s)${extras ? `, ${extras}` : ''}`;
-    await log({ kind: 'tick', summary, details: { local, tz, decisions, refreshed, posted } });
-    return new Response(JSON.stringify({ ok: true, local, tz, decisions, refreshed, posted }, null, 2), { headers: { 'Content-Type': 'application/json' } });
+    for (const club of clubs as Club[]) {
+      // Pick sender for this club: first owner/organiser member.
+      const { data: senders } = await supabase
+        .from('club_members')
+        .select('user_id, role')
+        .eq('club_id', club.id)
+        .in('role', ['owner', 'organiser'])
+        .order('role', { ascending: true })  // 'organiser' < 'owner' alphabetically; doesn't matter, just deterministic
+        .limit(1);
+      const senderUserId: string | null = senders?.[0]?.user_id ?? null;
+
+      // Per-club JWT + JID caches (must NOT leak across clubs — would send user A's
+      // messages from user B's WhatsApp).
+      let cachedSenderJwt: string | null = null;
+      let cachedSelfJid: string | null = null;
+      const ensureSenderJwt = async (): Promise<string | null> => {
+        if (cachedSenderJwt) return cachedSenderJwt;
+        if (!senderUserId) return null;
+        const secret = await ensureJwtSecret();
+        if (!secret) return null;
+        try { cachedSenderJwt = await mintUserJwt(senderUserId, secret); return cachedSenderJwt; }
+        catch (e) { await log({ kind: 'error', summary: `mint JWT: ${(e as Error).message}`, club_id: club.id }); return null; }
+      };
+      const ensureSelfJid = async (): Promise<string | null> => {
+        if (cachedSelfJid) return cachedSelfJid;
+        const jwt = await ensureSenderJwt(); if (!jwt) return null;
+        cachedSelfJid = await fetchSenderSelfJid(jwt);
+        return cachedSelfJid;
+      };
+
+      const tz: string = club.timezone || 'UTC';
+      const local = localComponents(now, tz);
+      const nowMinutes = local.hh * 60 + local.mm;
+
+      // Schedules belonging to this club only.
+      const { data: schedules } = await supabase
+        .from('session_schedules').select('*')
+        .eq('club_id', club.id)
+        .eq('enabled', true);
+
+      const decisions: Array<Record<string, unknown>> = [];
+      for (const s of (schedules ?? []) as SessionSchedule[]) {
+        type Decision = { kind: string; target: 'group' | 'self_dm'; reason: string };
+        const fires: Decision[] = [];
+        if (s.confirmation_enabled && s.confirmation_time) {
+          const cDow = dowDaysBefore(s.weekly_post_dow, s.confirmation_days_before);
+          if (local.dow === cDow && nowMinutes === timeToMinutes(s.confirmation_time)) fires.push({ kind: 'confirmation_dm', target: 'self_dm', reason: `${s.confirmation_days_before}d before call-out at ${s.confirmation_time}` });
+        }
+        if (local.dow === s.weekly_post_dow && nowMinutes === timeToMinutes(s.weekly_post_time)) fires.push({ kind: 'callout_poll', target: 'group', reason: `weekly_post at ${s.weekly_post_time}` });
+        if (s.nudge_enabled && s.nudge_time) {
+          const nDow = dowDaysBefore(s.kickoff_dow, s.nudge_days_before);
+          if (local.dow === nDow && nowMinutes === timeToMinutes(s.nudge_time)) fires.push({ kind: 'nudge', target: 'group', reason: `${s.nudge_days_before === 0 ? 'same day' : `${s.nudge_days_before}d before`} at ${s.nudge_time}` });
+        }
+        const tMin = timeToMinutes(s.kickoff_time) - Math.round(Number(s.team_gen_offset_hours) * 60);
+        if (local.dow === s.kickoff_dow && nowMinutes === tMin) fires.push({ kind: 'team_gen', target: s.team_gen_require_approval ? 'self_dm' : 'group', reason: `${s.team_gen_offset_hours}h before kickoff` });
+        const forceMin = timeToMinutes(s.kickoff_time) - Number(s.team_force_post_minutes_before_kickoff ?? 30);
+        if (local.dow === s.kickoff_dow && nowMinutes === forceMin) fires.push({ kind: 'team_force_post', target: 'group', reason: `${s.team_force_post_minutes_before_kickoff}min before kickoff — force-post if pending` });
+        if (s.mom_enabled) {
+          const kMin = timeToMinutes(s.kickoff_time);
+          const mMin = kMin + Number(s.match_duration_minutes) + Number(s.mom_delay_minutes);
+          if (local.dow === s.kickoff_dow && nowMinutes === mMin) fires.push({ kind: 'mom_poll', target: 'group', reason: `MoM time` });
+          const rMin = mMin + Number(s.mom_results_post_minutes);
+          if (local.dow === s.kickoff_dow && nowMinutes === rMin) fires.push({ kind: 'mom_results', target: 'group', reason: `voting closed` });
+        }
+        for (const d of fires) {
+          decisions.push({ club_id: club.id, club: club.name, schedule_id: s.id, schedule: s.name, ...d });
+          if (d.kind === 'callout_poll') await fireCalloutPoll(supabase, log, club, s, local, ensureSenderJwt);
+          else if (d.kind === 'confirmation_dm') await fireConfirmationDm(supabase, log, club, s, local, ensureSenderJwt, ensureSelfJid);
+          else if (d.kind === 'nudge') await fireNudge(supabase, log, club, s, local, ensureSenderJwt);
+          else if (d.kind === 'team_gen') await fireTeamGen(supabase, log, club, s, local, ensureSenderJwt, ensureSelfJid);
+          else if (d.kind === 'team_force_post') await fireTeamForcePost(supabase, log, club, s, local, ensureSenderJwt);
+          else if (d.kind === 'mom_poll') await fireMomPoll(supabase, log, club, s, local, ensureSenderJwt, ensureSelfJid);
+          else if (d.kind === 'mom_results') await fireMomResults(supabase, log, club, s, local, ensureSenderJwt);
+          else await log({ session_schedule_id: s.id, club_id: club.id, kind: 'decided', summary: `${s.name}: ${d.kind} → ${d.target} (dry-run, ${d.reason})`, details: { decision: d, local } });
+        }
+      }
+
+      let refreshed = 0;
+      try { refreshed += await refreshActiveSignups(supabase, log, club, ensureSenderJwt, schedules ?? []); }
+      catch (e) { await log({ kind: 'error', summary: `refresh signups crashed: ${(e as Error).message}`, details: { stack: (e as Error).stack?.substring(0, 500) }, club_id: club.id }); }
+
+      let posted = 0;
+      try { posted += await postConfirmedLineups(supabase, log, club, ensureSenderJwt); }
+      catch (e) { await log({ kind: 'error', summary: `post confirmed lineups crashed: ${(e as Error).message}`, details: { stack: (e as Error).stack?.substring(0, 500) }, club_id: club.id }); }
+
+      allDecisions.push(...decisions);
+      totalRefreshed += refreshed;
+      totalPosted += posted;
+
+      const extras = [refreshed ? `refreshed ${refreshed}` : '', posted ? `posted ${posted}` : ''].filter(Boolean).join(', ');
+      const clubSummary = decisions.length === 0
+        ? `${club.name}: ${local.ymd} ${String(local.hh).padStart(2,'0')}:${String(local.mm).padStart(2,'0')} ${tz} — no fires${extras ? `, ${extras}` : ''}`
+        : `${club.name}: ${local.ymd} ${String(local.hh).padStart(2,'0')}:${String(local.mm).padStart(2,'0')} ${tz} — ${decisions.length} fire(s)${extras ? `, ${extras}` : ''}`;
+      tickSummaries.push(clubSummary);
+      await log({ kind: 'tick', summary: clubSummary, club_id: club.id, details: { local, tz, decisions, refreshed, posted } });
+    }
+
+    return new Response(JSON.stringify({ ok: true, clubs: clubs.length, decisions: allDecisions, refreshed: totalRefreshed, posted: totalPosted, summaries: tickSummaries }, null, 2), { headers: { 'Content-Type': 'application/json' } });
   } catch (e) {
     const err = e as Error;
     await log({ kind: 'error', summary: `runtime-tick crashed: ${err.message}`, details: { stack: err.stack?.substring(0, 1000) } }).catch(() => undefined);
@@ -268,8 +321,7 @@ async function fireConfirmationDm(
   supabase: any,
   // deno-lint-ignore no-explicit-any
   log: (row: any) => Promise<unknown>,
-  // deno-lint-ignore no-explicit-any
-  cfg: any,
+  club: Club,
   s: SessionSchedule,
   local: { dow: number; hh: number; mm: number; ymd: string },
   ensureSenderJwt: () => Promise<string | null>,
@@ -277,14 +329,13 @@ async function fireConfirmationDm(
 ): Promise<void> {
   const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
   const kickoffAt = `${matchDate}T${s.kickoff_time.padEnd(8, ':00').substring(0, 8)}Z`;
-  const ws = await getOrCreateWeeklySession(supabase, s.id, matchDate, kickoffAt, log);
+  const ws = await getOrCreateWeeklySession(supabase, club.id, s.id, matchDate, kickoffAt, log);
   if (!ws) return;
   const skipStates = ['confirmation_sent', 'confirmation_declined', 'callout_sent', 'morning_nudge_sent', 'followup_sent', 'teams_pending_approval', 'teams_posted', 'mom_sent', 'mom_closed', 'cancelled'];
   if (skipStates.includes(ws.state)) {
     await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: confirmation skipped — weekly_session in state '${ws.state}'` });
     return;
   }
-  if (!cfg.relay_url) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no relay_url` }); return; }
   const jwt = await ensureSenderJwt();
   if (!jwt) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no JWT` }); return; }
   const selfJid = await ensureSelfJid();
@@ -295,7 +346,7 @@ async function fireConfirmationDm(
     await supabase.from('weekly_sessions').update({ confirmation_token: token }).eq('id', ws.id);
   }
   const text = renderConfirmationMessage(s, token);
-  const url = cfg.relay_url.replace(/\/$/, '') + '/message?connection=user';
+  const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
   let resp: Response;
   try { resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: selfJid, text }) }); }
   catch (e) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `relay net err: ${(e as Error).message}` }); return; }
@@ -310,27 +361,32 @@ async function refreshActiveSignups(
   supabase: any,
   // deno-lint-ignore no-explicit-any
   log: (row: any) => Promise<unknown>,
-  // deno-lint-ignore no-explicit-any
-  cfg: any,
+  club: Club,
   ensureSenderJwt: () => Promise<string | null>,
   schedules: SessionSchedule[],
 ): Promise<number> {
   const { data: actives, error } = await supabase
     .from('weekly_sessions')
     .select('id, session_schedule_id, callout_chat_jid, signups_in, signups_out, signups_maybe, signup_voter_jids, kickoff_at')
+    .eq('club_id', club.id)
     .in('state', ['callout_sent', 'morning_nudge_sent', 'followup_sent', 'teams_pending_approval'])
     .gt('kickoff_at', new Date().toISOString())
     .not('callout_chat_jid', 'is', null);
-  if (error) { await log({ kind: 'error', summary: `refresh load: ${error.message}` }); return 0; }
+  if (error) { await log({ kind: 'error', summary: `refresh load: ${error.message}`, club_id: club.id }); return 0; }
   if (!actives || actives.length === 0) return 0;
-  if (!cfg.relay_url) return 0;
   const jwt = await ensureSenderJwt();
   if (!jwt) return 0;
 
-  // Pull all known JIDs once so we can split voters → mapped/unmapped per session
-  const { data: knownPlayers } = await supabase
-    .from('players').select('whatsapp_jid').not('whatsapp_jid', 'is', null);
-  const knownJids = new Set<string>((knownPlayers ?? []).map((p: { whatsapp_jid: string }) => p.whatsapp_jid));
+  // Pull this club's known JIDs (players in club_players ∩ players.whatsapp_jid IS NOT NULL).
+  const { data: clubPlayerRows } = await supabase
+    .from('club_players').select('player_id').eq('club_id', club.id);
+  const clubPlayerIds: string[] = (clubPlayerRows ?? []).map((r: { player_id: string }) => r.player_id);
+  const knownJids = new Set<string>();
+  if (clubPlayerIds.length > 0) {
+    const { data: knownPlayers } = await supabase
+      .from('players').select('whatsapp_jid').in('id', clubPlayerIds).not('whatsapp_jid', 'is', null);
+    for (const p of (knownPlayers ?? []) as Array<{ whatsapp_jid: string }>) knownJids.add(p.whatsapp_jid);
+  }
 
   const scheduleById = new Map<string, SessionSchedule>();
   for (const s of schedules) scheduleById.set(s.id, s);
@@ -339,7 +395,7 @@ async function refreshActiveSignups(
   let refreshed = 0;
   for (const chatJid of Object.keys(byChat)) {
     const sessions = byChat[chatJid];
-    const url = `${cfg.relay_url.replace(/\/$/, '')}/polls?connection=user&chatJid=${encodeURIComponent(chatJid)}`;
+    const url = `${RELAY_URL.replace(/\/$/, '')}/polls?connection=user&chatJid=${encodeURIComponent(chatJid)}`;
     let resp: Response;
     try { resp = await fetch(url, { headers: { 'Authorization': `Bearer ${jwt}` } }); }
     catch (e) { await log({ kind: 'error', summary: `polls fetch network: ${(e as Error).message}` }); continue; }
@@ -392,15 +448,14 @@ async function fireCalloutPoll(
   supabase: any,
   // deno-lint-ignore no-explicit-any
   log: (row: any) => Promise<unknown>,
-  // deno-lint-ignore no-explicit-any
-  cfg: any,
+  club: Club,
   s: SessionSchedule,
   local: { dow: number; hh: number; mm: number; ymd: string },
   ensureSenderJwt: () => Promise<string | null>,
 ): Promise<void> {
   const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
   const kickoffAt = `${matchDate}T${s.kickoff_time.padEnd(8, ':00').substring(0, 8)}Z`;
-  const ws = await getOrCreateWeeklySession(supabase, s.id, matchDate, kickoffAt, log);
+  const ws = await getOrCreateWeeklySession(supabase, club.id, s.id, matchDate, kickoffAt, log);
   if (!ws) return;
   if (ws.state === 'confirmation_declined' || ws.state === 'cancelled') {
     await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: call-out skipped — state '${ws.state}'` });
@@ -411,12 +466,11 @@ async function fireCalloutPoll(
     return;
   }
   if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no whatsapp_group_jid` }); return; }
-  if (!cfg.relay_url) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no relay_url` }); return; }
   const jwt = await ensureSenderJwt();
   if (!jwt) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no JWT` }); return; }
   const question = renderCallOutQuestion(s);
   const options = (s.callout_poll_options && s.callout_poll_options.length >= 2) ? s.callout_poll_options : ['In ✅', 'Out ❌', 'Maybe 🤔'];
-  const url = cfg.relay_url.replace(/\/$/, '') + '/poll?connection=user';
+  const url = RELAY_URL.replace(/\/$/, '') + '/poll?connection=user';
   let resp: Response;
   try { resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, question, options, selectableCount: 1 }) }); }
   catch (e) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `relay net err: ${(e as Error).message}` }); return; }
@@ -432,8 +486,7 @@ async function fireNudge(
   supabase: any,
   // deno-lint-ignore no-explicit-any
   log: (row: any) => Promise<unknown>,
-  // deno-lint-ignore no-explicit-any
-  cfg: any,
+  club: Club,
   s: SessionSchedule,
   local: { dow: number; hh: number; mm: number; ymd: string },
   ensureSenderJwt: () => Promise<string | null>,
@@ -469,13 +522,12 @@ async function fireNudge(
     return;
   }
   if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no whatsapp_group_jid` }); return; }
-  if (!cfg.relay_url) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no relay_url` }); return; }
   const jwt = await ensureSenderJwt();
   if (!jwt) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no JWT` }); return; }
 
   const sameDay = s.nudge_days_before === 0;
   const text = renderNudge(s, ws.signups_in, sameDay);
-  const url = cfg.relay_url.replace(/\/$/, '') + '/message?connection=user';
+  const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
   let resp: Response;
   try { resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text }) }); }
   catch (e) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `relay net err: ${(e as Error).message}` }); return; }
@@ -618,8 +670,7 @@ async function fireTeamGen(
   supabase: any,
   // deno-lint-ignore no-explicit-any
   log: (row: any) => Promise<unknown>,
-  // deno-lint-ignore no-explicit-any
-  cfg: any,
+  club: Club,
   s: SessionSchedule,
   local: { dow: number; hh: number; mm: number; ymd: string },
   ensureSenderJwt: () => Promise<string | null>,
@@ -648,22 +699,35 @@ async function fireTeamGen(
   const voterJids: string[] = Array.isArray(ws.signup_voter_jids) ? ws.signup_voter_jids : [];
   const forcedPlayerIds: string[] = Array.isArray(ws.forced_lineup_player_ids) ? ws.forced_lineup_player_ids : [];
 
-  // Priority: (1) manually-forced player IDs, (2) map voter JIDs to players,
-  // (3) top-N regulars fallback so the bot still produces something.
+  // Multi-tenant: the candidate pool is restricted to this club's roster.
+  // (Service role bypasses RLS so we filter explicitly.)
+  const { data: clubPlayerRows } = await supabase
+    .from('club_players').select('player_id').eq('club_id', club.id);
+  const clubPlayerIds: string[] = (clubPlayerRows ?? []).map((r: { player_id: string }) => r.player_id);
+  if (clubPlayerIds.length === 0) {
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `${s.name}: team_gen aborted — club has no players in roster`, club_id: club.id });
+    return;
+  }
+
+  // Priority: (1) manually-forced player IDs (intersected with club roster for safety),
+  //           (2) map voter JIDs to players in this club,
+  //           (3) top-N regulars fallback so the bot still produces something.
   let playerSet: PlayerRow[] = [];
   let unmappedJids: string[] = [];
   let pickStrategy: 'forced' | 'voters' | 'top_regulars' = 'voters';
 
   if (forcedPlayerIds.length > 0) {
+    const safeIds = forcedPlayerIds.filter(id => clubPlayerIds.includes(id));
     const { data: forcedRaw } = await supabase
       .from('players').select('id, name, status, preferred_position, overall_score, is_linchpin, preferred_team, whatsapp_jid')
-      .in('id', forcedPlayerIds);
+      .in('id', safeIds);
     playerSet = (forcedRaw ?? []) as PlayerRow[];
     pickStrategy = 'forced';
   } else if (voterJids.length > 0) {
-    // Direct match on whatsapp_jid first
+    // Direct match on whatsapp_jid first, restricted to this club's roster.
     const { data: directRaw } = await supabase
       .from('players').select('id, name, status, preferred_position, overall_score, is_linchpin, preferred_team, whatsapp_jid, whatsapp_phone')
+      .in('id', clubPlayerIds)
       .in('whatsapp_jid', voterJids);
     const direct = (directRaw ?? []) as (PlayerRow & { whatsapp_phone: string | null })[];
     const directJids = new Set(direct.map(p => p.whatsapp_jid));
@@ -671,18 +735,16 @@ async function fireTeamGen(
 
     let phoneMatched: PlayerRow[] = [];
     if (stillMissing.length > 0) {
-      // Fallback: extract phone digits and try to match on whatsapp_phone
-      // (covers the case where the player was saved with @lid but the voter shows up as @s.whatsapp.net or vice-versa)
       const missingPhones = stillMissing
         .map(j => j.split('@')[0])
-        .filter(p => /^\d+$/.test(p)); // only @s.whatsapp.net style → has phone digits
+        .filter(p => /^\d+$/.test(p));
       if (missingPhones.length > 0) {
         const { data: byPhoneRaw } = await supabase
           .from('players').select('id, name, status, preferred_position, overall_score, is_linchpin, preferred_team, whatsapp_jid, whatsapp_phone')
+          .in('id', clubPlayerIds)
           .in('whatsapp_phone', missingPhones);
         phoneMatched = ((byPhoneRaw ?? []) as (PlayerRow & { whatsapp_phone: string | null })[])
           .filter(p => !direct.some(d => d.id === p.id));
-        // Mark which JIDs are now resolved
         const resolvedPhones = new Set(phoneMatched.map(p => p.whatsapp_phone));
         for (const j of stillMissing) {
           const phone = j.split('@')[0];
@@ -696,9 +758,10 @@ async function fireTeamGen(
   }
 
   if (playerSet.length === 0) {
-    // Fallback: top-N regulars
+    // Fallback: top-N regulars from THIS club's roster.
     const { data: fallback } = await supabase
       .from('players').select('id, name, status, preferred_position, overall_score, is_linchpin, preferred_team, whatsapp_jid')
+      .in('id', clubPlayerIds)
       .eq('status', 'regular')
       .order('overall_score', { ascending: false })
       .limit(s.target_players);
@@ -729,6 +792,7 @@ async function fireTeamGen(
   const { data: lineupIns, error: lineupErr } = await supabase
     .from('lineups')
     .insert({
+      club_id: club.id,
       name: lineupName,
       player_positions: positions,
       status: requireApproval ? 'pending_approval' : 'confirmed',
@@ -760,14 +824,13 @@ async function fireTeamGen(
   }
 
   // Send approval DM to organiser
-  if (!cfg.relay_url) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'no relay_url' }); return; }
   const jwt = await ensureSenderJwt();
   if (!jwt) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'no JWT' }); return; }
   const selfJid = await ensureSelfJid();
   if (!selfJid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'no self JID' }); return; }
 
   const text = renderApprovalDm(s, lineupIns.approval_token!, positions);
-  const url = cfg.relay_url.replace(/\/$/, '') + '/message?connection=user';
+  const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
   let resp: Response;
   try { resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: selfJid, text }) }); }
   catch (e) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `approval DM net err: ${(e as Error).message}` }); return; }
@@ -782,16 +845,16 @@ async function postConfirmedLineups(
   supabase: any,
   // deno-lint-ignore no-explicit-any
   log: (row: any) => Promise<unknown>,
-  // deno-lint-ignore no-explicit-any
-  cfg: any,
+  club: Club,
   ensureSenderJwt: () => Promise<string | null>,
 ): Promise<number> {
   const { data: lineups, error } = await supabase
     .from('lineups')
     .select('id, name, player_positions, status, session_schedule_id, match_date, posted_at, updated_at')
+    .eq('club_id', club.id)
     .eq('status', 'confirmed')
     .is('posted_at', null);
-  if (error) { await log({ kind: 'error', summary: `postConfirmedLineups load: ${error.message}` }); return 0; }
+  if (error) { await log({ kind: 'error', summary: `postConfirmedLineups load: ${error.message}`, club_id: club.id }); return 0; }
   if (!lineups || lineups.length === 0) return 0;
 
   let posted = 0;
@@ -805,7 +868,6 @@ async function postConfirmedLineups(
     const positions = (Array.isArray(lineup.player_positions) ? lineup.player_positions : []) as LineupPosition[];
     if (positions.length === 0) { await log({ session_schedule_id: s.id, kind: 'error', summary: `lineup ${lineup.id}: empty positions` }); continue; }
 
-    if (!cfg.relay_url) continue;
     const jwt = await ensureSenderJwt();
     if (!jwt) continue;
 
@@ -815,7 +877,7 @@ async function postConfirmedLineups(
     // even with Vercel's aggressive image-response cache.
     const cacheBust = lineup.updated_at ? Date.parse(lineup.updated_at) : Date.now();
     const imageUrl = `${APP_URL}/api/lineup-image?id=${encodeURIComponent(lineup.id)}&v=${cacheBust}`;
-    const mediaUrl = cfg.relay_url.replace(/\/$/, '') + '/media?connection=user';
+    const mediaUrl = RELAY_URL.replace(/\/$/, '') + '/media?connection=user';
     let mResp: Response;
     try {
       mResp = await fetch(mediaUrl, {
@@ -851,8 +913,7 @@ async function fireTeamForcePost(
   supabase: any,
   // deno-lint-ignore no-explicit-any
   log: (row: any) => Promise<unknown>,
-  // deno-lint-ignore no-explicit-any
-  cfg: any,
+  club: Club,
   s: SessionSchedule,
   local: { dow: number; hh: number; mm: number; ymd: string },
   ensureSenderJwt: () => Promise<string | null>,
@@ -900,8 +961,7 @@ async function fireMomPoll(
   supabase: any,
   // deno-lint-ignore no-explicit-any
   log: (row: any) => Promise<unknown>,
-  // deno-lint-ignore no-explicit-any
-  cfg: any,
+  club: Club,
   s: SessionSchedule,
   local: { dow: number; hh: number; mm: number; ymd: string },
   ensureSenderJwt: () => Promise<string | null>,
@@ -924,14 +984,13 @@ async function fireMomPoll(
   const positions = (Array.isArray(lineup?.player_positions) ? lineup.player_positions : []) as LineupPosition[];
   if (positions.length === 0) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_poll: empty lineup' }); return; }
 
-  if (!cfg.relay_url) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'no relay_url' }); return; }
   const jwt = await ensureSenderJwt();
   if (!jwt) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'no JWT' }); return; }
   // Relay enforces 5 polls/minute per user. If we hit 429, wait out a full
   // rate-limit window (~65s) and retry once. Also includes a basic retry for
   // transient 503 "WhatsApp not connected" errors.
   const sendPoll = async (to: string, question: string, options: string[], attempt = 1): Promise<boolean> => {
-    const url = cfg.relay_url.replace(/\/$/, '') + '/poll?connection=user';
+    const url = RELAY_URL.replace(/\/$/, '') + '/poll?connection=user';
     try {
       const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to, question, options, selectableCount: 1 }) });
       if (resp.ok) return true;
@@ -981,7 +1040,7 @@ async function fireMomPoll(
       `🏆 *Man of the Match — ${question.replace('🏆 Man of the Match — ', '').replace('?','')}*\n\n` +
       `Vote privately — anonymous.\n${link}\n\n` +
       `You have *${windowMin} min* to cast your vote ⏱`;
-    const url = cfg.relay_url.replace(/\/$/, '') + '/message?connection=user';
+    const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
     try {
       const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text }) });
       if (!resp.ok) {
@@ -1038,7 +1097,7 @@ async function fireMomPoll(
     if (selfJid) {
       const text = `🏆 *MoM coverage — ${unmappedNames.length} player${unmappedNames.length === 1 ? '' : 's'} didn't get a DM*\n\n` +
         unmappedNames.map(n => `• ${n}`).join('\n') + '\n\nAsk them directly + reply here with their picks if you want them counted.';
-      const url = cfg.relay_url.replace(/\/$/, '') + '/message?connection=user';
+      const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
       await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: selfJid, text }) }).catch(() => undefined);
     }
   }
@@ -1055,8 +1114,7 @@ async function fireMomResults(
   supabase: any,
   // deno-lint-ignore no-explicit-any
   log: (row: any) => Promise<unknown>,
-  // deno-lint-ignore no-explicit-any
-  cfg: any,
+  club: Club,
   s: SessionSchedule,
   local: { dow: number; hh: number; mm: number; ymd: string },
   ensureSenderJwt: () => Promise<string | null>,
@@ -1069,7 +1127,6 @@ async function fireMomResults(
   if (ws.state === 'cancelled' || ws.state === 'confirmation_declined') { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — state '${ws.state}'` }); return; }
   if (ws.mom_results_message_id) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results already posted` }); return; }
 
-  if (!cfg.relay_url) return;
   const jwt = await ensureSenderJwt();
   if (!jwt) return;
 
@@ -1089,7 +1146,7 @@ async function fireMomResults(
     const ballots = Array.isArray(ws.mom_ballots) ? ws.mom_ballots : [];
     if (ballots.length === 0) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — no ballots` }); return; }
     for (const b of ballots as Array<{ recipient_jid: string; option_player_ids: string[] }>) {
-      const url = `${cfg.relay_url.replace(/\/$/, '')}/polls?connection=user&chatJid=${encodeURIComponent(b.recipient_jid)}`;
+      const url = `${RELAY_URL.replace(/\/$/, '')}/polls?connection=user&chatJid=${encodeURIComponent(b.recipient_jid)}`;
       try {
         const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${jwt}` } });
         if (!resp.ok) continue;
@@ -1139,7 +1196,7 @@ async function fireMomResults(
   }
 
   if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_results: no group_jid' }); return; }
-  const url = cfg.relay_url.replace(/\/$/, '') + '/message?connection=user';
+  const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
   try {
     const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text: body }) });
     if (!resp.ok) { const b = await resp.text(); await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom_results post ${resp.status}`, details: { body: b.substring(0, 300) } }); return; }
