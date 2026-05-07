@@ -253,35 +253,67 @@ export interface Database {
           content?: string;
         };
       };
-      organiser_config: {
+      clubs: {
         Row: {
-          id: number;
-          enabled: boolean;
+          id: string;
+          name: string;
           timezone: string;
           bot_persona: string;
-          relay_url: string | null;
-          relay_connection_name: string;
+          enabled: boolean;
           alert_channel: 'in_app' | 'email' | 'whatsapp_dm' | 'push';
+          relay_url: string | null;
+          created_at: string;
           updated_at: string;
-          updated_by: string | null;
+          created_by: string | null;
         };
         Insert: {
-          id?: number;
-          enabled?: boolean;
+          id?: string;
+          name: string;
           timezone?: string;
           bot_persona?: string;
-          relay_url?: string | null;
-          relay_connection_name?: string;
+          enabled?: boolean;
           alert_channel?: 'in_app' | 'email' | 'whatsapp_dm' | 'push';
+          relay_url?: string | null;
+          created_by?: string | null;
         };
         Update: {
-          enabled?: boolean;
+          name?: string;
           timezone?: string;
           bot_persona?: string;
-          relay_url?: string | null;
-          relay_connection_name?: string;
+          enabled?: boolean;
           alert_channel?: 'in_app' | 'email' | 'whatsapp_dm' | 'push';
+          relay_url?: string | null;
         };
+      };
+      club_members: {
+        Row: {
+          club_id: string;
+          user_id: string;
+          role: 'owner' | 'organiser' | 'member';
+          created_at: string;
+        };
+        Insert: {
+          club_id: string;
+          user_id: string;
+          role?: 'owner' | 'organiser' | 'member';
+        };
+        Update: {
+          role?: 'owner' | 'organiser' | 'member';
+        };
+      };
+      club_players: {
+        Row: {
+          club_id: string;
+          player_id: string;
+          added_at: string;
+          added_by: string | null;
+        };
+        Insert: {
+          club_id: string;
+          player_id: string;
+          added_by?: string | null;
+        };
+        Update: Record<string, never>;
       };
       session_schedules: {
         Row: {
@@ -439,8 +471,22 @@ export type Lineup = Database['soccer']['Tables']['lineups']['Row'];
 export type LineupInsert = Database['soccer']['Tables']['lineups']['Insert'];
 export type LineupUpdate = Database['soccer']['Tables']['lineups']['Update'];
 
-export type OrganiserConfig = Database['soccer']['Tables']['organiser_config']['Row'];
-export type OrganiserConfigUpdate = Database['soccer']['Tables']['organiser_config']['Update'];
+export type Club = Database['soccer']['Tables']['clubs']['Row'];
+export type ClubInsert = Database['soccer']['Tables']['clubs']['Insert'];
+export type ClubUpdate = Database['soccer']['Tables']['clubs']['Update'];
+export type ClubRole = 'owner' | 'organiser' | 'member';
+export type ClubMember = Database['soccer']['Tables']['club_members']['Row'];
+export type ClubPlayer = Database['soccer']['Tables']['club_players']['Row'];
+
+/**
+ * @deprecated Use `Club` (and `useOrganiserConfig` returns a club now). The old
+ * singleton `organiser_config` table was dropped in the multi-tenant refactor.
+ * This alias keeps existing component code (which reads `config.relay_url`,
+ * `config.bot_persona`, etc.) working without churn.
+ */
+export type OrganiserConfig = Club;
+/** @deprecated Use `ClubUpdate`. */
+export type OrganiserConfigUpdate = ClubUpdate;
 
 export type SessionSchedule = Database['soccer']['Tables']['session_schedules']['Row'];
 export type SessionScheduleInsert = Database['soccer']['Tables']['session_schedules']['Insert'];

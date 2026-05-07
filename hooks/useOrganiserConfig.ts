@@ -1,23 +1,30 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { OrganiserConfig, OrganiserConfigUpdate } from '../types/database';
+import { Club, ClubUpdate } from '../types/database';
 import { useAuth } from '../contexts/AuthContext';
 
 interface UseOrganiserConfigReturn {
-  config: OrganiserConfig | null;
+  /** Currently-selected club. Today there's always one per user, multi-club UX is future. */
+  config: Club | null;
+  /** All clubs the signed-in user is a member of (use this when we add a club switcher). */
+  clubs: Club[];
   isLoading: boolean;
   isSaving: boolean;
   error: string | null;
-  save: (patch: OrganiserConfigUpdate) => Promise<boolean>;
+  save: (patch: ClubUpdate) => Promise<boolean>;
   refresh: () => Promise<void>;
 }
 
 /**
- * Loads and persists the singleton organiser_config row (id=1).
- * Only available when authenticated + Supabase configured; otherwise config is null.
+ * Loads the user's clubs and exposes the first one as `config` (legacy field name —
+ * preserved so existing component code reading `config.relay_url`, `config.bot_persona`
+ * etc. keeps working without churn). Save mutations target that same club.
+ *
+ * Multi-club UX is future work — when a user belongs to >1 club we'll add a switcher
+ * and persist the selection. Until then we show the first one.
  */
 export function useOrganiserConfig(): UseOrganiserConfigReturn {
-  const [config, setConfig] = useState<OrganiserConfig | null>(null);
+  const [clubs, setClubs] = useState<Club[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,24 +32,27 @@ export function useOrganiserConfig(): UseOrganiserConfigReturn {
   const { isAuthenticated, isPasswordRecovery } = useAuth();
   const canUse = isSupabaseConfigured() && supabase !== null && isAuthenticated && !isPasswordRecovery;
 
+  const config: Club | null = clubs[0] ?? null;
+
   const load = useCallback(async () => {
     if (!canUse || !supabase) {
       setIsLoading(false);
       return;
     }
     setError(null);
+    // RLS already restricts to clubs the user belongs to via club_members,
+    // so a plain SELECT * does the right thing.
     const { data, error: fetchError } = await supabase
-      .from('organiser_config')
+      .from('clubs')
       .select('*')
-      .eq('id', 1)
-      .single();
+      .order('created_at', { ascending: true });
 
     if (fetchError) {
       console.error('useOrganiserConfig: load error:', fetchError);
       setError(fetchError.message);
-      setConfig(null);
+      setClubs([]);
     } else {
-      setConfig(data as OrganiserConfig);
+      setClubs((data ?? []) as Club[]);
     }
     setIsLoading(false);
   }, [canUse]);
@@ -56,17 +66,21 @@ export function useOrganiserConfig(): UseOrganiserConfigReturn {
   }, [isAuthenticated, isPasswordRecovery, load]);
 
   const save = useCallback(
-    async (patch: OrganiserConfigUpdate): Promise<boolean> => {
+    async (patch: ClubUpdate): Promise<boolean> => {
       if (!canUse || !supabase) {
         setError('Not connected to Supabase');
+        return false;
+      }
+      if (!config) {
+        setError('No club to save — create one first');
         return false;
       }
       setIsSaving(true);
       setError(null);
       const { data, error: updateError } = await supabase
-        .from('organiser_config')
+        .from('clubs')
         .update(patch as never)
-        .eq('id', 1)
+        .eq('id', config.id)
         .select()
         .single();
       setIsSaving(false);
@@ -76,14 +90,16 @@ export function useOrganiserConfig(): UseOrganiserConfigReturn {
         setError(updateError.message);
         return false;
       }
-      setConfig(data as OrganiserConfig);
+      // Replace the row in the array
+      setClubs(prev => prev.map(c => (c.id === (data as Club).id ? (data as Club) : c)));
       return true;
     },
-    [canUse]
+    [canUse, config]
   );
 
   return {
     config,
+    clubs,
     isLoading,
     isSaving,
     error,
