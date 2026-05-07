@@ -196,7 +196,11 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
     );
   }
 
-  if (page.voting_closed) {
+  // If voting is closed AND we don't have any standings to show (caller didn't
+  // vote, or fingerprint mismatch), show the simple closed-state. If we DO have
+  // standings (the caller voted before close), fall through to the main render
+  // so they can still see how it landed.
+  if (page.voting_closed && (!top || top.length === 0)) {
     return (
       <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4">
         <div className="max-w-md text-center">
@@ -253,7 +257,7 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
             <div className="mb-4 p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-100 rounded-xl text-sm">
               <div className="flex items-center gap-2 font-semibold">
                 <span className="text-emerald-400">✓</span>
-                <span>Vote recorded</span>
+                <span>{page.voting_closed ? 'Voting closed' : 'Vote recorded'}</span>
               </div>
               <div className="mt-1 text-emerald-200/80">
                 You picked{' '}
@@ -261,13 +265,17 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
                   {page.players.find(p => p.id === submittedId)?.name ?? 'someone'}
                 </span>
                 .{' '}
-                {page.results_at
-                  ? <>Winner will be announced in the group around <span className="font-semibold">{formatResultsAt(page.results_at)}</span>.</>
-                  : <>Winner will be announced in the group when voting closes.</>}
+                {page.voting_closed
+                  ? <>Final results have been posted to the group.</>
+                  : page.results_at
+                    ? <>Winner will be announced in the group around <span className="font-semibold">{formatResultsAt(page.results_at)}</span>.</>
+                    : <>Winner will be announced in the group when voting closes.</>}
               </div>
-              <div className="mt-2 text-emerald-300/70 text-xs">
-                Your vote is anonymous. Tap a different name below to change it.
-              </div>
+              {!page.voting_closed && (
+                <div className="mt-2 text-emerald-300/70 text-xs">
+                  Your vote is anonymous. Tap a different name below to change it.
+                </div>
+              )}
             </div>
           )}
 
@@ -302,68 +310,74 @@ const MomVotePage: React.FC<VotePageProps> = ({ token }) => {
                 ))}
               </ol>
               <p className="text-slate-500 text-[11px] mt-3 leading-snug">
-                Final winner posted in the group when voting closes.
+                {page.voting_closed
+                  ? 'Voting is closed. The winner has been posted in the group.'
+                  : 'Final winner posted in the group when voting closes.'}
               </p>
             </div>
           )}
 
-          <ul className="space-y-2">
-            {page.players.map(p => {
-              const isSelected = selectedId === p.id;
-              const isSubmittedChoice = submittedId === p.id;
-              const ring = isSelected
-                ? 'ring-2 ring-emerald-400 bg-emerald-950/40'
-                : isSubmittedChoice
-                ? 'ring-1 ring-emerald-500/40 bg-slate-900/60'
-                : 'bg-slate-900/60 hover:bg-slate-800/60';
-              return (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(p.id)}
-                    className={`w-full p-4 rounded-xl border border-slate-800 text-left transition-all ${ring}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-white font-semibold text-lg">{p.name}</span>
-                      {isSubmittedChoice && !isSelected && (
-                        <span className="text-emerald-400 text-xs">Your current vote</span>
-                      )}
-                      {isSelected && (
-                        <span className="text-emerald-300 text-xs font-bold">✓ Selected</span>
-                      )}
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          {!page.voting_closed && (
+            <ul className="space-y-2">
+              {page.players.map(p => {
+                const isSelected = selectedId === p.id;
+                const isSubmittedChoice = submittedId === p.id;
+                const ring = isSelected
+                  ? 'ring-2 ring-emerald-400 bg-emerald-950/40'
+                  : isSubmittedChoice
+                  ? 'ring-1 ring-emerald-500/40 bg-slate-900/60'
+                  : 'bg-slate-900/60 hover:bg-slate-800/60';
+                return (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(p.id)}
+                      className={`w-full p-4 rounded-xl border border-slate-800 text-left transition-all ${ring}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-white font-semibold text-lg">{p.name}</span>
+                        {isSubmittedChoice && !isSelected && (
+                          <span className="text-emerald-400 text-xs">Your current vote</span>
+                        )}
+                        {isSelected && (
+                          <span className="text-emerald-300 text-xs font-bold">✓ Selected</span>
+                        )}
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       </main>
 
-      {/* Fixed action bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur border-t border-slate-800">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <div className="text-slate-400 text-xs truncate">
-            {submittedId && selectedId === submittedId
-              ? 'This is already your vote'
-              : selectedId
-              ? 'Ready to cast'
-              : 'Pick one'}
+      {/* Fixed action bar — hidden when voting is closed */}
+      {!page.voting_closed && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur border-t border-slate-800">
+          <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+            <div className="text-slate-400 text-xs truncate">
+              {submittedId && selectedId === submittedId
+                ? 'This is already your vote'
+                : selectedId
+                ? 'Ready to cast'
+                : 'Pick one'}
+            </div>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={
+                !selectedId ||
+                selectedId === submittedId ||
+                isSubmitting
+              }
+              className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-black uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? 'Voting…' : submittedId ? 'Change vote' : 'Cast vote'}
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={
-              !selectedId ||
-              selectedId === submittedId ||
-              isSubmitting
-            }
-            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg text-xs font-black uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? 'Voting…' : submittedId ? 'Change vote' : 'Cast vote'}
-          </button>
         </div>
-      </div>
+      )}
     </div>
   );
 };

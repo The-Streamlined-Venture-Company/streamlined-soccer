@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useClub } from '../contexts/ClubContext';
 import TimezonePicker from './admin/TimezonePicker';
@@ -53,10 +53,6 @@ const OnboardingFlow: React.FC = () => {
     if (personaId === 'custom') return customPersona.trim() || PERSONA_PRESETS[0].persona;
     return PERSONA_PRESETS.find(p => p.id === personaId)?.persona ?? PERSONA_PRESETS[0].persona;
   }, [personaId, customPersona]);
-
-  useEffect(() => {
-    if (error) setSubmitError(error);
-  }, [error]);
 
   const goNext = () => {
     setSubmitError(null);

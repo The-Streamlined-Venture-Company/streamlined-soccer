@@ -201,12 +201,17 @@ export function createJwtAuthMiddleware(
         return;
       }
     } else {
-      // HS256 — legacy path
-      if (jwtSecret) {
-        if (!verifyHS256Signature(token, jwtSecret)) {
-          res.status(401).json({ success: false, error: 'Invalid token signature' });
-          return;
-        }
+      // HS256 — legacy path. Reject if no secret is configured: with neither
+      // jwtSecret nor supabaseUrl-as-fallback, accepting an HS256 token would
+      // mean skipping signature verification entirely (alg-confusion bypass).
+      // Modern deploys use ES256 only and shouldn't ever see an HS256 token.
+      if (!jwtSecret) {
+        res.status(401).json({ success: false, error: 'HS256 tokens not accepted (relay configured for ES256 only — set SUPABASE_JWT_SECRET to enable HS256)' });
+        return;
+      }
+      if (!verifyHS256Signature(token, jwtSecret)) {
+        res.status(401).json({ success: false, error: 'Invalid token signature' });
+        return;
       }
       payload = decodeJwtPayload(token);
       if (!payload) {

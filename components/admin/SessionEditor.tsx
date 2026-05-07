@@ -508,9 +508,9 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
                     },
                     {
                       value: 'whatsapp_poll',
-                      label: 'WhatsApp poll',
+                      label: 'Per-player DM polls',
                       tagline: 'Less reliable',
-                      desc: "DM each player a poll listing the others. Aggregation depends on WhatsApp's poll API and isn't always reliable.",
+                      desc: "DM each player a private poll listing the others. Aggregation depends on WhatsApp's poll API and isn't always reliable.",
                     },
                     {
                       value: 'organiser_dm',

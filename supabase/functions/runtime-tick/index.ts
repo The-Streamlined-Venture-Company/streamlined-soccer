@@ -103,6 +103,17 @@ function generateToken(): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Build a Postgres-parseable timestamptz string from a date, time, and IANA tz.
+// Postgres accepts named tz suffixes (e.g. "2026-05-12 20:00:00 Asia/Dubai")
+// and stores the correct UTC moment. Without this, the previous code wrote
+// "${date}T${time}Z" — labelling the local clock-time as UTC, which made
+// kickoff_at off by the club's UTC offset. That broke get_mom_vote_page's
+// "Winner around X" copy and any other downstream timestamp arithmetic.
+function buildKickoffAt(matchDate: string, kickoffTime: string, timezone: string): string {
+  const time = kickoffTime.padEnd(8, ':00').substring(0, 8);
+  return `${matchDate} ${time} ${timezone}`;
+}
+
 interface SessionSchedule {
   id: string; name: string; enabled: boolean;
   kickoff_dow: number; kickoff_time: string; pitch_label: string | null;
@@ -328,7 +339,7 @@ async function fireConfirmationDm(
   ensureSelfJid: () => Promise<string | null>,
 ): Promise<void> {
   const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
-  const kickoffAt = `${matchDate}T${s.kickoff_time.padEnd(8, ':00').substring(0, 8)}Z`;
+  const kickoffAt = buildKickoffAt(matchDate, s.kickoff_time, club.timezone);
   const ws = await getOrCreateWeeklySession(supabase, club.id, s.id, matchDate, kickoffAt, log);
   if (!ws) return;
   const skipStates = ['confirmation_sent', 'confirmation_declined', 'callout_sent', 'morning_nudge_sent', 'followup_sent', 'teams_pending_approval', 'teams_posted', 'mom_sent', 'mom_closed', 'cancelled'];
@@ -454,7 +465,7 @@ async function fireCalloutPoll(
   ensureSenderJwt: () => Promise<string | null>,
 ): Promise<void> {
   const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
-  const kickoffAt = `${matchDate}T${s.kickoff_time.padEnd(8, ':00').substring(0, 8)}Z`;
+  const kickoffAt = buildKickoffAt(matchDate, s.kickoff_time, club.timezone);
   const ws = await getOrCreateWeeklySession(supabase, club.id, s.id, matchDate, kickoffAt, log);
   if (!ws) return;
   if (ws.state === 'confirmation_declined' || ws.state === 'cancelled') {
@@ -807,10 +818,12 @@ async function fireTeamGen(
     return;
   }
 
-  // Update weekly_session with the lineup + state + unmapped voters
+  // Update weekly_session with the lineup + state + unmapped voters.
+  // Both auto-mode and approval-required mode park here; postConfirmedLineups
+  // (called every tick) flips to 'teams_posted' once the lineup is confirmed.
   await supabase.from('weekly_sessions').update({
     lineup_id: lineupIns.id,
-    state: requireApproval ? 'teams_pending_approval' : 'teams_pending_approval', // post step flips to teams_posted
+    state: 'teams_pending_approval',
     unmapped_voter_jids: unmappedJids,
   }).eq('id', ws.id);
 
@@ -970,7 +983,7 @@ async function fireMomPoll(
   const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
   const { data: ws } = await supabase
     .from('weekly_sessions')
-    .select('id, state, lineup_id, mom_ballots, mom_message_id')
+    .select('id, state, lineup_id, mom_ballots, mom_message_id, mom_vote_token')
     .eq('session_schedule_id', s.id)
     .eq('match_date', matchDate)
     .single();
@@ -1028,12 +1041,21 @@ async function fireMomPoll(
     // Web-link flow: post an anonymous vote link to the group. Players tap,
     // pick, dedup is per-device. Aggregation reads from soccer.mom_votes.
     if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_poll: no whatsapp_group_jid' }); return; }
-    const voteToken = generateToken();
-    const { error: tokErr } = await supabase
-      .from('weekly_sessions')
-      .update({ mom_vote_token: voteToken, mom_message_id: 'web_link', state: 'mom_sent' })
-      .eq('id', ws.id);
-    if (tokErr) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom_poll token save: ${tokErr.message}` }); return; }
+
+    // Generate the token in memory but DO NOT persist mom_message_id until the
+    // relay POST succeeds. If we set the sentinel first and the relay POST
+    // fails, the next minute's tick refuses to retry — voters never get the
+    // link, and fireMomResults later posts "no votes were cast" on an empty
+    // tally. Persist the token first so we have a stable URL across retries,
+    // then attempt the relay POST, and only then mark the message as sent.
+    const voteToken = ws.mom_vote_token ?? generateToken();
+    if (!ws.mom_vote_token) {
+      const { error: tokErr } = await supabase
+        .from('weekly_sessions')
+        .update({ mom_vote_token: voteToken })
+        .eq('id', ws.id);
+      if (tokErr) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom_poll token save: ${tokErr.message}` }); return; }
+    }
     const link = `${APP_URL}/mom/${voteToken}`;
     const windowMin = s.mom_results_post_minutes;
     // Humanise: 60 → "1 hour", 90 → "1 hour 30 min", 30 → "30 min".
@@ -1054,9 +1076,17 @@ async function fireMomPoll(
       if (!resp.ok) {
         const body = (await resp.text()).substring(0, 300);
         await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom web link post ${resp.status}`, details: { body } });
-        return;
+        return;  // mom_message_id stays null → next tick can retry
       }
-    } catch (e) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom web link net err: ${(e as Error).message}` }); return; }
+    } catch (e) {
+      await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom web link net err: ${(e as Error).message}` });
+      return;  // mom_message_id stays null → next tick can retry
+    }
+    // Relay POST succeeded — NOW mark the message as sent so we don't double-post.
+    await supabase
+      .from('weekly_sessions')
+      .update({ mom_message_id: 'web_link', state: 'mom_sent' })
+      .eq('id', ws.id);
     await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: MoM vote link posted`, details: { link, window_min: windowMin } });
     return;
   }
