@@ -326,6 +326,7 @@ export class RelayServer {
         expectedIssuer: this.config.supabaseUrl ? `${this.config.supabaseUrl}/auth/v1` : undefined,
         expectedAudience: 'authenticated',
         jwtSecret: this.config.supabaseJwtSecret,
+        supabaseUrl: this.config.supabaseUrl,
       });
       this.app.use((req: Request, res: Response, next: NextFunction) => {
         if (req.path === '/health') return next();
