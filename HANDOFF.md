@@ -82,15 +82,25 @@ billing (Stripe), sport-agnostic refactor.
 
 | Service | URL / ID | Owner |
 |---|---|---|
-| GitHub repo | https://github.com/zsection/streamlined-soccer | (will change) |
-| Supabase project | `jgjjnpofbpvekdvdzbgb` ("Streamlined Tools", ap-south-1) | (will change) |
-| Supabase DB host | `db.jgjjnpofbpvekdvdzbgb.supabase.co` | (will change) |
-| Vercel project | `z-5779s-projects/streamlined-soccer` | (will change) |
-| Vercel public alias | https://streamlined-soccer-cyan.vercel.app | (will change) |
-| Railway project | `soccer-whatsapp-relay` | (will change) |
-| Railway service | `soccer-whatsapp-relay` (production env) | (will change) |
-| Relay public URL | https://soccer-whatsapp-relay-production.up.railway.app | (will change) |
+| GitHub repo (canonical) | https://github.com/The-Streamlined-Venture-Company/streamlined-soccer | The Streamlined Venture Company |
+| Supabase project | `thffjqfhuvwoosqcqoha` ("Streamlined Tools", ap-northeast-1) | z@zee.me |
+| Supabase DB host | `db.thffjqfhuvwoosqcqoha.supabase.co` | z@zee.me |
+| Vercel project | `z-5779s-projects/streamlined-soccer` (`prj_kVvmREGCjMu8zjZQHMZoFhmenVLe`) | z-5779s-projects |
+| Vercel public alias | https://streamlined-soccer-cyan.vercel.app | z-5779s-projects |
+| Railway project | `soccer-whatsapp-relay` | z@zee.me |
+| Railway service | `soccer-whatsapp-relay` (production env) | z@zee.me |
+| Relay public URL | https://soccer-whatsapp-relay-production.up.railway.app | z@zee.me |
 | Bot's WhatsApp number | +44 7999 605999 (currently paired to organiser Zee) | depends on who pairs |
+
+**Repo consolidation (May 2026):** the canonical repo is now
+`The-Streamlined-Venture-Company/streamlined-soccer`. Vercel auto-deploys from
+its `main` branch (push to `main` → ~30s build → live on
+`streamlined-soccer-cyan.vercel.app`). Earlier work bounced between this org
+repo and a personal fork (`zsection/streamlined-soccer`); the personal fork is
+archived as a read-only safety net. The Jan 2026 head of the org repo
+(an abandoned `html-to-image` experiment) was preserved on
+`legacy/jan-2026-image-export` before being overwritten — and its core fix was
+cherry-picked back into `main` (`de5a073`).
 
 **During account migration, all 4 services need to be re-created on the new
 accounts.** The repo can stay on GitHub or move; the rest must be re-deployed
