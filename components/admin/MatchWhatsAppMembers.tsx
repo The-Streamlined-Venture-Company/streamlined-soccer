@@ -243,7 +243,7 @@ const MatchWhatsAppMembers: React.FC<MatchWhatsAppMembersProps> = ({ scheduleId 
         </button>
       </div>
 
-      {participantsError && <ErrorMessage message={participantsError} />}
+      {participantsError && <ErrorMessage error={participantsError} />}
       {participantsLoading && <LoadingSpinner />}
 
       {!participantsLoading && participants.length === 0 && !participantsError && (

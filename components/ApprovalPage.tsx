@@ -292,7 +292,7 @@ const ApprovalPage: React.FC<ApprovalPageProps> = ({ token }) => {
       <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4">
         <div className="max-w-md text-center">
           <ErrorMessage
-            message={
+            error={
               error ?? `No lineup found for token "${token}". It may have expired or been confirmed already.`
             }
           />

@@ -41,5 +41,8 @@ ss-and-logs/
 supabase/.temp/
 .vercel/
 
+# One-off data dumps from account migrations (contains personal info, never commit)
+.migration/
+
 # Claude Code
 .claude/

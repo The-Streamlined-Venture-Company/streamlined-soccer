@@ -180,9 +180,9 @@ const OrganiserSettingsInner: React.FC = () => {
   );
 
   if (isLoading) return <LoadingSpinner />;
-  if (error) return <ErrorMessage message={error} />;
+  if (error) return <ErrorMessage error={error} />;
   if (!config) {
-    return <ErrorMessage message="Organiser config not available (not authenticated or DB misconfigured)." />;
+    return <ErrorMessage error="Organiser config not available (not authenticated or DB misconfigured)." />;
   }
 
   const merged: OrganiserConfig = { ...config, ...draft };

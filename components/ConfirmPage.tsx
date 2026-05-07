@@ -55,7 +55,7 @@ const ConfirmPage: React.FC<ConfirmPageProps> = ({ token }) => {
       <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4">
         <div className="max-w-md text-center">
           <ErrorMessage
-            message={
+            error={
               error ?? `No upcoming session found for token "${token}". It may have expired.`
             }
           />
