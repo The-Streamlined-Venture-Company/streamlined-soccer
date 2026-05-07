@@ -38,6 +38,8 @@ const DEFAULT_INSERT: Omit<SessionScheduleInsert, 'name'> = {
   mom_results_post_minutes: 60,
   target_players: 14,
   min_players: 10,
+  nudge_below_players: 12,
+  cancel_below_players: 8,
   allow_plus_ones: true,
   plus_ones_count_toward_target: false,
 };

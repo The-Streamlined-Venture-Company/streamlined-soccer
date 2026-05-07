@@ -367,7 +367,7 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
         title="Nudge"
         summary={
           merged.nudge_enabled
-            ? `${merged.nudge_days_before === 0 ? 'Same day' : `${merged.nudge_days_before}d before`} at ${timeInputValue(merged.nudge_time)} (if signups < min)`
+            ? `${merged.nudge_days_before === 0 ? 'Same day' : `${merged.nudge_days_before}d before`} at ${timeInputValue(merged.nudge_time)} (if signups < ${merged.nudge_below_players})`
             : 'Off'
         }
       >
@@ -375,7 +375,7 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
           checked={merged.nudge_enabled}
           onChange={v => set('nudge_enabled', v)}
           label="Send a group nudge if signups are low"
-          hint={`Only fires if signups are below the minimum (${merged.min_players}). One nudge per week.`}
+          hint={`Only fires if signups are below the nudge threshold (${merged.nudge_below_players}). One nudge per week.`}
         />
         {merged.nudge_enabled && (
           <div className="grid grid-cols-2 gap-3">
@@ -581,30 +581,52 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
       {/* Player counts */}
       <SubSection
         title="Player counts"
-        summary={`Target ${merged.target_players} · min ${merged.min_players}${merged.allow_plus_ones ? ' · +1s allowed' : ''}`}
+        summary={`Target ${merged.target_players} · nudge < ${merged.nudge_below_players} · cancel < ${merged.cancel_below_players}${merged.allow_plus_ones ? ' · +1s allowed' : ''}`}
       >
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Target">
-            <input
-              type="number"
-              min={2}
-              max={50}
-              value={merged.target_players}
-              onChange={e => set('target_players', Number(e.target.value))}
-              className={inputCls}
-            />
-          </Field>
-          <Field label="Minimum">
-            <input
-              type="number"
-              min={2}
-              max={50}
-              value={merged.min_players}
-              onChange={e => set('min_players', Number(e.target.value))}
-              className={inputCls}
-            />
-          </Field>
-        </div>
+        <Field
+          label="Target players"
+          hint="The ideal squad size. The call-out poll asks for this many."
+        >
+          <input
+            type="number"
+            min={2}
+            max={50}
+            value={merged.target_players}
+            onChange={e => set('target_players', Number(e.target.value))}
+            className={inputCls}
+          />
+        </Field>
+        <Field
+          label="Nudge below this many"
+          hint={`If signups stay under this count, the bot sends a group nudge at the time you set above. Currently ${merged.nudge_below_players}.`}
+        >
+          <input
+            type="number"
+            min={0}
+            max={50}
+            value={merged.nudge_below_players}
+            onChange={e => {
+              const v = Number(e.target.value);
+              set('nudge_below_players', v);
+              // Keep cancel <= nudge invariant.
+              if (merged.cancel_below_players > v) set('cancel_below_players', v);
+            }}
+            className={inputCls}
+          />
+        </Field>
+        <Field
+          label="Call the game off below this many"
+          hint={`At team-generation time, if signups are below this, the bot posts "called off" instead of generating teams. Must be ≤ nudge threshold.`}
+        >
+          <input
+            type="number"
+            min={0}
+            max={merged.nudge_below_players}
+            value={merged.cancel_below_players}
+            onChange={e => set('cancel_below_players', Number(e.target.value))}
+            className={inputCls}
+          />
+        </Field>
         <Toggle
           checked={merged.allow_plus_ones}
           onChange={v => set('allow_plus_ones', v)}

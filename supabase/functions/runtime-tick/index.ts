@@ -66,9 +66,12 @@ function renderNudge(s: SessionSchedule, signedIn: number, sameDay: boolean): st
   const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
   const time = s.kickoff_time?.substring(0, 5) ?? '';
   const pitch = s.pitch_label ? ` — ${s.pitch_label}` : '';
-  const need = Math.max(0, s.min_players - signedIn);
+  // Express the gap relative to the cancel floor — "we need this many or
+  // the game's off" is the most actionable framing.
+  const cancelFloor = Number(s.cancel_below_players ?? s.min_players);
+  const need = Math.max(0, cancelFloor - signedIn);
   const when = sameDay ? `tonight at ${time}` : `${dayName} at ${time}`;
-  return `🌅 *Football ${when}${pitch}*\n\nWe've got *${signedIn}/${s.target_players}* so far — still need at least *${need}* more.\n\nIf you're in, vote on the poll above 👆`;
+  return `🌅 *Football ${when}${pitch}*\n\nWe've got *${signedIn}/${s.target_players}* so far — still need at least *${need}* more or the game gets called off.\n\nIf you're in, vote on the poll above 👆`;
 }
 
 async function mintUserJwt(userId: string, jwtSecret: string): Promise<string> {
@@ -125,6 +128,7 @@ interface SessionSchedule {
   mom_enabled: boolean; match_duration_minutes: number; mom_delay_minutes: number; mom_results_post_minutes: number;
   mom_method: 'whatsapp_poll' | 'web_link' | 'organiser_dm';
   target_players: number; min_players: number;
+  nudge_below_players: number; cancel_below_players: number;
   callout_poll_question: string; callout_poll_options: string[];
   whatsapp_group_jid: string | null; whatsapp_group_name: string | null;
 }
@@ -528,8 +532,11 @@ async function fireNudge(
     await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: nudge already sent this week` });
     return;
   }
-  if (ws.signups_in >= s.min_players) {
-    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: nudge skipped — already at ${ws.signups_in}/${s.min_players} min` });
+  // Use the explicit nudge_below_players threshold; falls back to min_players
+  // for legacy rows where the migration hasn't run yet.
+  const nudgeFloor = Number(s.nudge_below_players ?? s.min_players);
+  if (ws.signups_in >= nudgeFloor) {
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: nudge skipped — already at ${ws.signups_in}/${nudgeFloor} nudge floor` });
     return;
   }
   if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no whatsapp_group_jid` }); return; }
@@ -690,7 +697,7 @@ async function fireTeamGen(
   const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
   const { data: ws, error: wsErr } = await supabase
     .from('weekly_sessions')
-    .select('id, state, signup_voter_jids, lineup_id, forced_lineup_player_ids')
+    .select('id, state, signup_voter_jids, signups_in, lineup_id, forced_lineup_player_ids')
     .eq('session_schedule_id', s.id)
     .eq('match_date', matchDate)
     .single();
@@ -707,8 +714,37 @@ async function fireTeamGen(
     return;
   }
 
+  // Auto-cancel if signups are below the cancellation floor. Skip team gen
+  // entirely, post a "called off" message to the group, mark the session
+  // cancelled. Only triggers if a forced lineup hasn't been set (organiser
+  // override always beats auto-cancel).
+  const cancelFloor = Number(s.cancel_below_players ?? s.min_players);
+  const forcedPlayerIdsForCheck: string[] = Array.isArray(ws.forced_lineup_player_ids) ? ws.forced_lineup_player_ids : [];
+  if (forcedPlayerIdsForCheck.length === 0 && Number(ws.signups_in ?? 0) < cancelFloor) {
+    if (s.whatsapp_group_jid) {
+      const jwt = await ensureSenderJwt();
+      if (jwt) {
+        const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
+        const time = s.kickoff_time?.substring(0, 5) ?? '';
+        const pitch = s.pitch_label ? ` — ${s.pitch_label}` : '';
+        const text =
+          `🚫 *${dayName} football${pitch} called off*\n\n` +
+          `Only *${ws.signups_in ?? 0}* signed up — we need at least *${cancelFloor}* to play. Sorry team, see you next week ⚽`;
+        const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
+        try {
+          await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text }) });
+        } catch (e) {
+          await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `cancel post net err: ${(e as Error).message}` });
+        }
+      }
+    }
+    await supabase.from('weekly_sessions').update({ state: 'cancelled' }).eq('id', ws.id);
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: AUTO-CANCELLED — only ${ws.signups_in ?? 0} signups (floor ${cancelFloor})`, details: { signups_in: ws.signups_in ?? 0, cancel_floor: cancelFloor } });
+    return;
+  }
+
   const voterJids: string[] = Array.isArray(ws.signup_voter_jids) ? ws.signup_voter_jids : [];
-  const forcedPlayerIds: string[] = Array.isArray(ws.forced_lineup_player_ids) ? ws.forced_lineup_player_ids : [];
+  const forcedPlayerIds = forcedPlayerIdsForCheck;
 
   // Multi-tenant: the candidate pool is restricted to this club's roster.
   // (Service role bypasses RLS so we filter explicitly.)

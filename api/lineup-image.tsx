@@ -71,12 +71,15 @@ interface Slot {
 // instead of 4 so everything fits in WhatsApp's 4:5 uncropped preview.
 // Works for typical 6-a-side where everyone rotates rather than having a
 // dedicated GK.
+//
+// Row spacing tuned so DEF and MID rows have visible breathing room — at
+// y=38/y=70 the vertical gap is ~32 image-percent (vs ~23 before).
 const FORMATION_6: Slot[] = [
   { x: 50, y: 22 },    // GK
-  { x: 25, y: 42 },    // DEF L
-  { x: 75, y: 42 },    // DEF R
-  { x: 25, y: 65 },    // MID L
-  { x: 75, y: 65 },    // MID R
+  { x: 25, y: 38 },    // DEF L
+  { x: 75, y: 38 },    // DEF R
+  { x: 25, y: 70 },    // MID L
+  { x: 75, y: 70 },    // MID R
   { x: 50, y: 88 },    // FWD
 ];
 
@@ -124,7 +127,36 @@ function WhiteShirt() {
   );
 }
 
-function PlayerOnPitch({ player, x, y }: { player: Position; x: number; y: number; key?: string }) {
+// Pick a display name: prefer the first name (or nickname in parens), but
+// fall back to the full name if the first name collides with someone else
+// in the lineup. "Karim S. (Kiko)" → "Kiko"; "Dan Ellis" → "Dan"; if both
+// "John" and "John C" are in the lineup, both render as their full names.
+function shortenName(full: string): string {
+  // Nickname in parens wins: "Karim S. (Kiko)" → "Kiko"
+  const nick = full.match(/\(([^)]+)\)/);
+  if (nick) return nick[1].trim();
+  // Otherwise first space-separated token
+  return full.split(/\s+/)[0];
+}
+
+function buildDisplayNames(positions: Position[]): Map<string, string> {
+  const shortBy = new Map<string, string>();
+  const counts = new Map<string, number>();
+  for (const p of positions) {
+    const s = shortenName(p.name);
+    counts.set(s, (counts.get(s) ?? 0) + 1);
+    shortBy.set(p.player_id, s);
+  }
+  // For colliding short names, fall back to full name on those rows.
+  const out = new Map<string, string>();
+  for (const p of positions) {
+    const s = shortBy.get(p.player_id)!;
+    out.set(p.player_id, (counts.get(s) ?? 0) > 1 ? p.name : s);
+  }
+  return out;
+}
+
+function PlayerOnPitch({ player, x, y, displayName }: { player: Position; x: number; y: number; displayName: string; key?: string }) {
   return (
     <div
       style={{
@@ -157,7 +189,7 @@ function PlayerOnPitch({ player, x, y }: { player: Position; x: number; y: numbe
           boxShadow: '0 6px 14px rgba(0,0,0,0.5)',
         }}
       >
-        {player.name}
+        {displayName}
       </div>
     </div>
   );
@@ -190,6 +222,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   const blackSlots = slotsForTeam(black.length);
   const whiteSlots = slotsForTeam(white.length);
+  const displayNames = buildDisplayNames(positions);
 
   return new ImageResponse(
     (
@@ -325,6 +358,7 @@ export default async function handler(req: Request): Promise<Response> {
                 player={p}
                 x={s.x}
                 y={s.y * 0.5} // 0-50% of full image
+                displayName={displayNames.get(p.player_id) ?? p.name}
               />
             );
           })}
@@ -340,6 +374,7 @@ export default async function handler(req: Request): Promise<Response> {
                 player={p}
                 x={s.x}
                 y={50 + yInHalf * 0.5} // 50-100% of full image
+                displayName={displayNames.get(p.player_id) ?? p.name}
               />
             );
           })}

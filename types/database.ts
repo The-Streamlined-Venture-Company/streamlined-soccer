@@ -341,6 +341,8 @@ export interface Database {
           mom_results_post_minutes: number;
           target_players: number;
           min_players: number;
+          nudge_below_players: number;
+          cancel_below_players: number;
           allow_plus_ones: boolean;
           plus_ones_count_toward_target: boolean;
           whatsapp_group_jid: string | null;
@@ -381,6 +383,8 @@ export interface Database {
           mom_results_post_minutes?: number;
           target_players?: number;
           min_players?: number;
+          nudge_below_players?: number;
+          cancel_below_players?: number;
           allow_plus_ones?: boolean;
           plus_ones_count_toward_target?: boolean;
           whatsapp_group_jid?: string | null;
@@ -413,6 +417,8 @@ export interface Database {
           mom_results_post_minutes?: number;
           target_players?: number;
           min_players?: number;
+          nudge_below_players?: number;
+          cancel_below_players?: number;
           allow_plus_ones?: boolean;
           plus_ones_count_toward_target?: boolean;
           whatsapp_group_jid?: string | null;
