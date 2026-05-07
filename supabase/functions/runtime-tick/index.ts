@@ -112,7 +112,7 @@ interface SessionSchedule {
   team_gen_offset_hours: number; team_gen_require_approval: boolean;
   team_force_post_minutes_before_kickoff: number;
   mom_enabled: boolean; match_duration_minutes: number; mom_delay_minutes: number; mom_results_post_minutes: number;
-  mom_method: 'auto' | 'whatsapp_poll' | 'web_link' | 'organiser_dm';
+  mom_method: 'whatsapp_poll' | 'web_link' | 'organiser_dm';
   target_players: number; min_players: number;
   callout_poll_question: string; callout_poll_options: string[];
   whatsapp_group_jid: string | null; whatsapp_group_name: string | null;

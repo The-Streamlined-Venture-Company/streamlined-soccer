@@ -337,7 +337,7 @@ export interface Database {
           mom_enabled: boolean;
           match_duration_minutes: number;
           mom_delay_minutes: number;
-          mom_method: 'auto' | 'whatsapp_poll' | 'web_link';
+          mom_method: 'whatsapp_poll' | 'web_link' | 'organiser_dm';
           mom_results_post_minutes: number;
           target_players: number;
           min_players: number;
@@ -377,7 +377,7 @@ export interface Database {
           mom_enabled?: boolean;
           match_duration_minutes?: number;
           mom_delay_minutes?: number;
-          mom_method?: 'auto' | 'whatsapp_poll' | 'web_link';
+          mom_method?: 'whatsapp_poll' | 'web_link' | 'organiser_dm';
           mom_results_post_minutes?: number;
           target_players?: number;
           min_players?: number;
@@ -409,7 +409,7 @@ export interface Database {
           mom_enabled?: boolean;
           match_duration_minutes?: number;
           mom_delay_minutes?: number;
-          mom_method?: 'auto' | 'whatsapp_poll' | 'web_link';
+          mom_method?: 'whatsapp_poll' | 'web_link' | 'organiser_dm';
           mom_results_post_minutes?: number;
           target_players?: number;
           min_players?: number;

@@ -455,7 +455,13 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
         title="Man of the Match"
         summary={
           merged.mom_enabled
-            ? `${formatDurationMinutes(merged.mom_results_post_minutes)} window · ${merged.mom_method === 'auto' ? 'auto poll/link' : merged.mom_method === 'whatsapp_poll' ? 'WhatsApp poll' : 'vote link'}`
+            ? `${formatDurationMinutes(merged.mom_results_post_minutes)} window · ${
+                merged.mom_method === 'web_link'
+                  ? 'vote link'
+                  : merged.mom_method === 'whatsapp_poll'
+                    ? 'WhatsApp poll'
+                    : 'organiser DM'
+              }`
             : 'Off'
         }
       >
@@ -490,30 +496,84 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
                 />
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Method">
-                <select
-                  value={merged.mom_method}
-                  onChange={e => set('mom_method', e.target.value as SessionSchedule['mom_method'])}
-                  className={inputCls}
-                >
-                  <option value="auto">Auto</option>
-                  <option value="whatsapp_poll">WhatsApp poll</option>
-                  <option value="web_link">Vote link</option>
-                </select>
-              </Field>
-              <Field label="Voting window (minutes)">
-                <input
-                  type="number"
-                  min={0}
-                  max={10080}
-                  step={5}
-                  value={merged.mom_results_post_minutes}
-                  onChange={e => set('mom_results_post_minutes', Number(e.target.value))}
-                  className={inputCls}
-                />
-              </Field>
-            </div>
+            <Field label="How to collect votes">
+              <div className="space-y-2">
+                {(
+                  [
+                    {
+                      value: 'web_link',
+                      label: 'Vote link',
+                      tagline: 'Recommended',
+                      desc: 'One anonymous link posted to the group. Players tap, pick, done. One vote per device.',
+                    },
+                    {
+                      value: 'whatsapp_poll',
+                      label: 'WhatsApp poll',
+                      tagline: 'Less reliable',
+                      desc: "DM each player a poll listing the others. Aggregation depends on WhatsApp's poll API and isn't always reliable.",
+                    },
+                    {
+                      value: 'organiser_dm',
+                      label: 'Organiser DM',
+                      tagline: 'No group needed',
+                      desc: "One poll DM'd to you with all players as options. You decide. Use when there's no WhatsApp group.",
+                    },
+                  ] as const
+                ).map(opt => {
+                  const selected = merged.mom_method === opt.value;
+                  return (
+                    <button
+                      type="button"
+                      key={opt.value}
+                      onClick={() => set('mom_method', opt.value)}
+                      className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                        selected
+                          ? 'bg-emerald-500/10 border-emerald-500/50'
+                          : 'bg-slate-950/40 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${
+                            selected ? 'border-emerald-400 bg-emerald-400' : 'border-slate-600'
+                          }`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2">
+                            <span className={`text-sm font-medium ${selected ? 'text-white' : 'text-slate-300'}`}>
+                              {opt.label}
+                            </span>
+                            <span
+                              className={`text-[10px] font-black uppercase tracking-[0.15em] ${
+                                opt.tagline === 'Recommended'
+                                  ? 'text-emerald-400'
+                                  : opt.tagline === 'Less reliable'
+                                    ? 'text-amber-400'
+                                    : 'text-slate-500'
+                              }`}
+                            >
+                              {opt.tagline}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1 leading-snug">{opt.desc}</p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+            <Field label="Voting window (minutes)">
+              <input
+                type="number"
+                min={0}
+                max={10080}
+                step={5}
+                value={merged.mom_results_post_minutes}
+                onChange={e => set('mom_results_post_minutes', Number(e.target.value))}
+                className={inputCls}
+              />
+            </Field>
           </>
         )}
       </SubSection>

@@ -34,7 +34,7 @@ const DEFAULT_INSERT: Omit<SessionScheduleInsert, 'name'> = {
   mom_enabled: true,
   match_duration_minutes: 60,
   mom_delay_minutes: 0,
-  mom_method: 'auto',
+  mom_method: 'web_link',
   mom_results_post_minutes: 60,
   target_players: 14,
   min_players: 10,
