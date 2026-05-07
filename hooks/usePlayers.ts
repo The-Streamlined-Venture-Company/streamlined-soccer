@@ -4,6 +4,7 @@ import { Player, PlayerInsert, PlayerUpdate, calculateOverallScore } from '../ty
 import { DatabasePlayer } from '../types';
 import { findBestMatch } from '../utils/fuzzyMatch';
 import { useAuth } from '../contexts/AuthContext';
+import { useClub } from '../contexts/ClubContext';
 
 interface UsePlayersReturn {
   players: Player[];
@@ -64,6 +65,7 @@ export function usePlayers(): UsePlayersReturn {
 
   // Get auth state
   const { isAuthenticated, isPasswordRecovery } = useAuth();
+  const { currentClubId } = useClub();
 
   // Check if we're using Supabase or localStorage
   // Only use Supabase if configured AND authenticated AND not in password recovery
@@ -172,11 +174,18 @@ export function usePlayers(): UsePlayersReturn {
       const { overall_score: _unused, ...playerData } = player;
 
       if (useSupabase && supabase) {
-        const { data, error: insertError } = await supabase
-          .from('players')
-          .insert(playerData as never)
-          .select()
-          .single();
+        if (!currentClubId) {
+          setError('No club selected — create or join a club first');
+          return null;
+        }
+        // RPC creates the player + club_players row in one transaction.
+        // Two-step (insert players, then club_players) doesn't work because the
+        // SELECT policy on players filters out rows the caller isn't yet linked
+        // to via club_players, so .select() after .insert() returns nothing.
+        const { data, error: insertError } = await supabase.rpc('add_player_to_club', {
+          p_club_id: currentClubId,
+          p_player: playerData,
+        } as never);
 
         if (insertError) {
           console.error('Error adding player:', insertError);
@@ -227,7 +236,7 @@ export function usePlayers(): UsePlayersReturn {
         return newPlayer;
       }
     },
-    [useSupabase, players, saveToLocalStorage]
+    [useSupabase, players, currentClubId, saveToLocalStorage]
   );
 
   // Update a player

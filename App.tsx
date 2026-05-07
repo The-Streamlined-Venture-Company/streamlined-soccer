@@ -10,7 +10,9 @@ import OrganiserSettings from './components/admin/OrganiserSettings';
 import ApprovalPage from './components/ApprovalPage';
 import ConfirmPage from './components/ConfirmPage';
 import MomVotePage from './components/MomVotePage';
+import OnboardingFlow from './components/OnboardingFlow';
 import { useAuth } from './contexts/AuthContext';
+import { useClub } from './contexts/ClubContext';
 import { useDragAndDrop } from './hooks/useDragAndDrop';
 import { useImageExport } from './hooks/useImageExport';
 import { usePlayers } from './hooks/usePlayers';
@@ -97,6 +99,7 @@ const App: React.FC = () => {
 
   // Auth context
   const { canEditPlayers, isAuthenticated, isPasswordRecovery, clearPasswordRecovery, isLoading: isAuthLoading } = useAuth();
+  const { clubs, isLoading: isClubsLoading } = useClub();
 
   // Player database hook
   const { getRatingForName, findPlayerByName, players: dbPlayers, refresh: refreshPlayers } = usePlayers();
@@ -279,6 +282,26 @@ const App: React.FC = () => {
         <Auth />
       </div>
     );
+  }
+
+  // Wait for the clubs list to load before deciding whether to show onboarding —
+  // otherwise newly authenticated users flash the wizard for a frame before clubs load.
+  if (isAuthenticated && !isPasswordRecovery && isClubsLoading) {
+    return (
+      <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center p-4">
+        <div className="text-center">
+          <h1 className="text-4xl font-black tracking-tighter text-white uppercase italic leading-none mb-4">
+            STREAMLINED<span className="text-emerald-400"> SOCCER</span>
+          </h1>
+          <div className="w-6 h-6 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
+  // Authenticated but not yet a member of any club → onboarding wizard.
+  if (isAuthenticated && !isPasswordRecovery && clubs.length === 0) {
+    return <OnboardingFlow />;
   }
 
   // Players Database Page

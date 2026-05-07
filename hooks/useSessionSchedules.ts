@@ -6,6 +6,7 @@ import {
   SessionScheduleUpdate,
 } from '../types/database';
 import { useAuth } from '../contexts/AuthContext';
+import { useClub } from '../contexts/ClubContext';
 
 interface UseSessionSchedulesReturn {
   schedules: SessionSchedule[];
@@ -51,6 +52,7 @@ export function useSessionSchedules(): UseSessionSchedulesReturn {
   const [error, setError] = useState<string | null>(null);
 
   const { isAuthenticated, isPasswordRecovery } = useAuth();
+  const { currentClubId } = useClub();
   const canUse = isSupabaseConfigured() && supabase !== null && isAuthenticated && !isPasswordRecovery;
 
   const load = useCallback(async () => {
@@ -83,9 +85,13 @@ export function useSessionSchedules(): UseSessionSchedulesReturn {
   const add = useCallback(
     async (insert: SessionScheduleInsert) => {
       if (!canUse || !supabase) return null;
+      if (!currentClubId) {
+        setError('No club selected — create or join a club first');
+        return null;
+      }
       const { data, error: insertError } = await supabase
         .from('session_schedules')
-        .insert(insert as never)
+        .insert({ ...insert, club_id: currentClubId } as never)
         .select()
         .single();
       if (insertError) {
@@ -96,7 +102,7 @@ export function useSessionSchedules(): UseSessionSchedulesReturn {
       setSchedules(prev => [...prev, created]);
       return created;
     },
-    [canUse]
+    [canUse, currentClubId]
   );
 
   const update = useCallback(

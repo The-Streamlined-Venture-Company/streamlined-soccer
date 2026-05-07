@@ -13,14 +13,16 @@ generates balanced teams, sends the organiser an approval link, posts a pitch
 image to the group when confirmed, and runs an anonymous Man-of-the-Match vote
 afterwards. **Zero touching of WhatsApp by the organiser during the week.**
 
-**Current state (April 2026):** end-to-end flow shipped + tested on a real
-group. Tonight's live test (24 April 2026) ran call-out → team gen → approval →
-image post → MoM web-link voting → results. All working. Some tactical issues
-fixed mid-test (rate limits on poll DMs, WhatsApp session disconnects on relay
-deploy).
+**Current state (May 2026):** end-to-end flow shipped + tested on a real
+group. April test (24 April 2026) ran call-out → team gen → approval → image
+post → MoM web-link voting → results. **Multi-tenant phases 1–5 shipped May
+2026** — the singleton `organiser_config` is gone, the data model is
+club-scoped via `clubs` / `club_members` / `club_players`, the runtime
+iterates clubs, and new signups go through a 3-step "create your first club"
+wizard (`components/OnboardingFlow.tsx`). See §12 for what's still ahead.
 
-**Next big chunks:** multi-tenant ("clubs"), sport-agnostic refactor, and a
-self-serve onboarding flow.
+**Next big chunks:** WhatsApp pairing per-club via UI, club switcher UI,
+billing (Stripe), sport-agnostic refactor.
 
 ---
 
@@ -700,15 +702,36 @@ session JWT) — easier than minting one manually.
 
 Tracked roughly in priority order. Items 1–4 unlock multi-tenant SaaS.
 
-### Multi-tenant ("clubs")
-Today the data model assumes one organiser, one `organiser_config` row, one
-relay tenant. To support multiple clubs:
-- Introduce `clubs` table; FK from `players`, `session_schedules`, etc.
-- `organiser_config` becomes per-club (or merged into `clubs`).
-- The runtime loop iterates clubs × schedules.
-- Each club has its own WhatsApp pairing on the relay.
-- App becomes club-scoped (URL like `/c/:slug/players`).
-- Subscription / billing layer (Stripe) — paid per club per month.
+### Multi-tenant ("clubs") — ✅ Phase 1–5 shipped (May 2026)
+The single-tenant `organiser_config` singleton has been replaced with a `clubs`
+data model. Status by sub-item:
+- ✅ `clubs` / `club_members` / `club_players` tables. Per-club role
+  (`owner`/`organiser`/`member`). RLS via `is_club_member` /
+  `is_club_organiser` helpers. Migration:
+  `20260507000000_multi_tenant_clubs.sql` (+ `20260507100000_clubs_relay_url.sql`
+  restoring `relay_url` after the env-var revert).
+- ✅ `organiser_config` dropped; `bot_persona` / `timezone` / `enabled` /
+  `relay_url` live on `clubs` instead.
+- ✅ `runtime-tick` iterates clubs × schedules; per-club JWT/sender cache.
+- ✅ Frontend: `ClubProvider` exposes the current club; `useOrganiserConfig`
+  is a back-compat shim that reads from it. Onboarding wizard
+  (`components/OnboardingFlow.tsx`) creates the user's first club via the
+  `create_club_with_owner` RPC (`20260507200000_create_club_rpc.sql`).
+- ✅ Adding a player goes through `add_player_to_club` RPC
+  (`20260507210000_add_player_to_club_rpc.sql`) — atomic insert into
+  `players` + `club_players` (the SELECT policy on `players` requires
+  membership, so a two-step from the client doesn't work).
+
+Still ahead (phase 6+):
+- Each club has its own WhatsApp pairing on the relay. (Today the relay is
+  multi-tenant by `user_id`; club pairing is implicit via the owning user.)
+- Club switcher UI when a user belongs to >1 club. Currently `ClubProvider`
+  picks the first club and persists a chosen `current_club_id` in
+  `localStorage`, but there's no UI to switch.
+- Public club URLs (`/c/:slug/...`).
+- Subscription / billing (Stripe).
+- Invites — today only the original owner is in `club_members`; no flow to
+  add an organiser or member.
 
 ### Sport-agnostic refactor
 Football is hardcoded. To support cricket/basketball/whatever:

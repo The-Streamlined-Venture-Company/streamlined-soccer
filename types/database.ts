@@ -318,6 +318,7 @@ export interface Database {
       session_schedules: {
         Row: {
           id: string;
+          club_id: string;
           name: string;
           enabled: boolean;
           kickoff_dow: number;
@@ -357,6 +358,7 @@ export interface Database {
         };
         Insert: {
           id?: string;
+          club_id?: string;
           name: string;
           enabled?: boolean;
           kickoff_dow: number;
