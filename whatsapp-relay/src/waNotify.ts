@@ -79,13 +79,20 @@ export async function notifyWaState(
 
   if (!resp?.ok || !resp.notify_topic) return;
 
-  // 2. Optional ntfy.sh push for phone notifications
+  // 2. Optional ntfy.sh push for phone notifications. Use ntfy's JSON API so
+  //    we can put unicode (emoji) in the title — HTTP headers are ISO-8859-1
+  //    which would throw "String contains non ISO-8859-1 code point" if we
+  //    tried to set Title: '⚠️ ...' as a header.
   const topic = resp.notify_topic.replace(/[^a-zA-Z0-9_-]/g, '');
   if (!topic) return;
 
   const message = formatPushMessage(state, phoneNumber);
-  const priority = state === 'disconnected' ? '4' : '3'; // 4 = high (sound + vibrate)
-  const tags = state === 'connected' ? 'white_check_mark' : state === 'disconnected' ? 'warning' : 'hourglass';
+  const priority = state === 'disconnected' ? 4 : 3;  // 4 = high (sound + vibrate)
+  const tags = [
+    state === 'connected' ? 'white_check_mark'
+      : state === 'disconnected' ? 'warning'
+      : 'hourglass',
+  ];
   const title = state === 'connected'
     ? '✅ WhatsApp connected'
     : state === 'disconnected'
@@ -95,17 +102,17 @@ export async function notifyWaState(
         : '📱 WhatsApp needs QR scan';
 
   try {
-    await fetch(`${NTFY_BASE.replace(/\/$/, '')}/${topic}`, {
+    await fetch(`${NTFY_BASE.replace(/\/$/, '')}/`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain',
-        Title: title,
-        Priority: priority,
-        Tags: tags,
-        // Click action takes the organiser straight to the Settings page
-        Click: 'https://streamlined-soccer-cyan.vercel.app',
-      },
-      body: message,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        topic,
+        title,
+        message,
+        priority,
+        tags,
+        click: 'https://streamlined-soccer-cyan.vercel.app',
+      }),
     });
   } catch (e) {
     console.warn(`[waNotify] ntfy push failed: ${(e as Error).message}`);

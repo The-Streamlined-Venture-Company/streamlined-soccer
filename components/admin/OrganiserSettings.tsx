@@ -376,16 +376,20 @@ const OrganiserSettingsInner: React.FC = () => {
               type="button"
               onClick={async () => {
                 try {
-                  await fetch(`https://ntfy.sh/${merged.notify_topic}`, {
+                  // ntfy.sh JSON API — using the body avoids the HTTP-header
+                  // ISO-8859-1 restriction so the title can include emoji.
+                  const r = await fetch('https://ntfy.sh/', {
                     method: 'POST',
-                    headers: {
-                      'Content-Type': 'text/plain',
-                      Title: '🧪 Test push',
-                      Priority: '3',
-                      Tags: 'test_tube',
-                    },
-                    body: 'If you got this, your ntfy.sh notifications are wired up. Disconnect alerts will look like this.',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      topic: merged.notify_topic,
+                      title: '🧪 Test push',
+                      message: 'If you got this, your ntfy.sh notifications are wired up. Disconnect alerts will look like this.',
+                      priority: 3,
+                      tags: ['test_tube'],
+                    }),
                   });
+                  if (!r.ok) throw new Error(`HTTP ${r.status}`);
                   alert('Test notification sent. Check your phone.');
                 } catch (e) {
                   alert(`Test failed: ${(e as Error).message}`);
