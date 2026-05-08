@@ -15,6 +15,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { WhatsAppClient } from './whatsapp.js';
 import { MessageBuffer } from './messageBuffer.js';
+import { notifyWaState, type WaConnectionState } from './waNotify.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -173,6 +174,16 @@ export class TenantManager {
     // Capture QR updates so /status can serve them back to the UI
     client.onQR((qr) => {
       session.lastQR = qr;
+    });
+
+    // Broadcast every connection-state change to Supabase + ntfy.sh so the
+    // organiser can see the live status in the app and get a push if they've
+    // configured a notify_topic on the club.
+    client.onConnection((state) => {
+      // Best-effort: never let a notify failure crash the tenant.
+      void notifyWaState(userId, state as WaConnectionState, client.getPhoneNumber()).catch(err => {
+        console.warn(`[TenantManager] notifyWaState ${userId.slice(0, 8)}/${state}: ${(err as Error).message}`);
+      });
     });
 
     this.sessions.set(userId, session);

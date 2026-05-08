@@ -65,12 +65,22 @@ export class WhatsAppClient {
   private reconnectAttempts = 0;
   private isReconnecting = false;
   private intentionalDisconnect = false;
+  private outerRetryTimer: NodeJS.Timeout | null = null;
   private static readonly KEEPALIVE_INTERVAL_MS = 30_000;
   private static readonly STALE_CONNECTION_THRESHOLD_MS = 60_000;
   /** If no inbound Baileys event for this long while "connected", force refresh.
    *  Healthy connections emit connection.update every ~15-30s. */
   private static readonly INBOUND_STALE_THRESHOLD_MS = 90_000;
-  private static readonly MAX_RECONNECT_ATTEMPTS = 5;
+  /** Max immediate reconnect attempts with exponential backoff (3s → 6s → 12s
+   *  → 24s → 48s → capped at 60s). After this we drop into the OUTER retry
+   *  loop below — a slow heartbeat that retries indefinitely, so the relay
+   *  recovers on its own when WhatsApp comes back, no manual scan needed. */
+  private static readonly MAX_RECONNECT_ATTEMPTS = 30;
+  private static readonly RECONNECT_DELAY_CAP_MS = 60_000;
+  /** Outer-loop retry interval for when MAX_RECONNECT_ATTEMPTS is exhausted.
+   *  Keeps trying every 5 minutes forever until either the connection comes
+   *  back, intentionalDisconnect is called, or the user re-pairs via QR. */
+  private static readonly OUTER_RETRY_INTERVAL_MS = 5 * 60_000;
 
   // Message retry system
   private msgRetryCounterCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
@@ -353,8 +363,9 @@ export class WhatsAppClient {
         // All reconnect paths share the same attempt counter
         this.reconnectAttempts++;
         if (this.reconnectAttempts > WhatsAppClient.MAX_RECONNECT_ATTEMPTS) {
-          console.error(`[WhatsApp] Max reconnect attempts (${WhatsAppClient.MAX_RECONNECT_ATTEMPTS}) reached, giving up. User must click Connect.`);
+          console.error(`[WhatsApp] Max immediate reconnect attempts (${WhatsAppClient.MAX_RECONNECT_ATTEMPTS}) reached. Falling back to slow outer retry every ${WhatsAppClient.OUTER_RETRY_INTERVAL_MS / 60_000}min until WhatsApp recovers or user re-pairs.`);
           this.emitConnectionState('disconnected');
+          this.scheduleOuterRetry();
           return;
         }
 
@@ -362,7 +373,8 @@ export class WhatsAppClient {
           // Transient error (515 restart, network blip) — reconnect with backoff
           this.isReconnecting = true;
           this.emitConnectionState('reconnecting');
-          const delay = 3000 * Math.pow(2, this.reconnectAttempts - 1);
+          const exp = 3000 * Math.pow(2, this.reconnectAttempts - 1);
+          const delay = Math.min(exp, WhatsAppClient.RECONNECT_DELAY_CAP_MS);
           console.log(`[WhatsApp] Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${WhatsAppClient.MAX_RECONNECT_ATTEMPTS})...`);
           this.fullyInitialized = false;
           try {
@@ -415,6 +427,11 @@ export class WhatsAppClient {
         this.isConnected = true;
         this.reconnectAttempts = 0;
         this.lastSuccessfulOperation = Date.now();
+        // Cancel any pending outer-retry timer — we're back online.
+        if (this.outerRetryTimer) {
+          clearTimeout(this.outerRetryTimer);
+          this.outerRetryTimer = null;
+        }
 
         // Clear QR
         this.onQRCallback?.(null);
@@ -1000,6 +1017,40 @@ export class WhatsAppClient {
 
   private emitConnectionState(state: ConnectionState): void {
     this.onConnectionCallback?.(state);
+  }
+
+  /**
+   * Slow outer-retry loop: kicks in after the inner exponential-backoff loop
+   * runs out of attempts. Tries to reconnect once every OUTER_RETRY_INTERVAL_MS
+   * forever, until either the connection comes back (which clears the timer)
+   * or the user calls intentional disconnect / re-pairs via QR.
+   *
+   * This is what makes the relay self-heal from longer outages — without it,
+   * a 10-minute WhatsApp/network blip would force a manual rescan.
+   */
+  private scheduleOuterRetry(): void {
+    if (this.intentionalDisconnect) return;
+    if (this.outerRetryTimer) return;
+    this.outerRetryTimer = setTimeout(async () => {
+      this.outerRetryTimer = null;
+      if (this.intentionalDisconnect || this.isConnected) return;
+      console.log(`[WhatsApp] Outer-retry: attempting reconnect after ${WhatsAppClient.OUTER_RETRY_INTERVAL_MS / 60_000}min cooldown...`);
+      // Reset the inner counter so we get a fresh round of fast retries.
+      this.reconnectAttempts = 0;
+      this.isReconnecting = true;
+      try {
+        if (this.socket) {
+          try { this.socket.end(undefined); } catch { /* ignore */ }
+          this.socket = null;
+        }
+        await this.connect();
+      } catch (e) {
+        console.warn('[WhatsApp] Outer-retry connect failed:', (e as Error).message);
+        this.scheduleOuterRetry();  // schedule another round
+      } finally {
+        this.isReconnecting = false;
+      }
+    }, WhatsAppClient.OUTER_RETRY_INTERVAL_MS);
   }
 
   /**

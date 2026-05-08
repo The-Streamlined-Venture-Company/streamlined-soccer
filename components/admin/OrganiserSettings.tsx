@@ -344,6 +344,61 @@ const OrganiserSettingsInner: React.FC = () => {
         </Field>
       </Section>
 
+      {/* Phone push notifications via ntfy.sh */}
+      <Section
+        title="Phone notifications"
+        subtitle="Get an instant phone notification when WhatsApp disconnects or recovers, even when this app is closed. Free, no account, powered by ntfy.sh."
+        defaultOpen={false}
+        summary={merged.notify_topic ? `ntfy.sh/${merged.notify_topic}` : 'Off'}
+      >
+        <div className="space-y-4">
+          <div className="text-xs text-slate-400 leading-relaxed space-y-2">
+            <p className="font-bold text-slate-300">Setup (one-time):</p>
+            <ol className="list-decimal list-inside space-y-1 ml-1">
+              <li>Install <a href="https://ntfy.sh/app" target="_blank" rel="noreferrer" className="text-emerald-400 underline">the ntfy app</a> on your phone (iOS / Android).</li>
+              <li>Open the app, tap <span className="font-mono">+</span>, choose a unique secret topic name (e.g. <span className="font-mono text-slate-300">tsc-football-{(merged.id ?? 'xyz').substring(0, 6)}</span>) and Subscribe.</li>
+              <li>Paste the same topic name below, then tap save.</li>
+            </ol>
+            <p className="text-slate-500">Your topic is your password — keep it private. Anyone who knows it can push to your phone.</p>
+          </div>
+          <Field label="ntfy.sh topic" hint="Letters, digits, hyphens, underscores. Leave blank to disable.">
+            <input
+              type="text"
+              value={merged.notify_topic ?? ''}
+              onChange={e => set('notify_topic', e.target.value.replace(/[^a-zA-Z0-9_-]/g, '') || null)}
+              placeholder="tsc-football-xxxxxx"
+              className={`${inputCls} font-mono text-xs`}
+              autoComplete="off"
+            />
+          </Field>
+          {merged.notify_topic && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await fetch(`https://ntfy.sh/${merged.notify_topic}`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'text/plain',
+                      Title: '🧪 Test push',
+                      Priority: '3',
+                      Tags: 'test_tube',
+                    },
+                    body: 'If you got this, your ntfy.sh notifications are wired up. Disconnect alerts will look like this.',
+                  });
+                  alert('Test notification sent. Check your phone.');
+                } catch (e) {
+                  alert(`Test failed: ${(e as Error).message}`);
+                }
+              }}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-black uppercase tracking-widest transition-all"
+            >
+              Send a test push
+            </button>
+          )}
+        </div>
+      </Section>
+
     </div>
   );
 };

@@ -11,6 +11,7 @@ import ApprovalPage from './components/ApprovalPage';
 import ConfirmPage from './components/ConfirmPage';
 import MomVotePage from './components/MomVotePage';
 import OnboardingFlow from './components/OnboardingFlow';
+import WhatsAppStatusBanner from './components/WhatsAppStatusBanner';
 import { useAuth } from './contexts/AuthContext';
 import { useClub } from './contexts/ClubContext';
 import { useDragAndDrop } from './hooks/useDragAndDrop';
@@ -315,6 +316,8 @@ const App: React.FC = () => {
           </div>
         )}
 
+        <WhatsAppStatusBanner onConnectClick={() => setCurrentPage('organiser')} />
+
         <header className="w-full max-w-5xl flex justify-between items-center mb-6">
           <div className="flex items-center gap-4">
             <button
@@ -358,6 +361,8 @@ const App: React.FC = () => {
           </div>
         )}
 
+        <WhatsAppStatusBanner />
+
         <header className="w-full max-w-3xl flex justify-between items-center mb-6">
           <div className="flex items-center gap-4">
             <button
@@ -398,6 +403,8 @@ const App: React.FC = () => {
           <PasswordReset onComplete={clearPasswordRecovery} />
         </div>
       )}
+
+      {!hideUI && <WhatsAppStatusBanner onConnectClick={() => setCurrentPage('organiser')} />}
 
       {!hideUI && (
         <header className="w-full max-w-4xl flex flex-col md:flex-row justify-between items-center mb-8 gap-4">

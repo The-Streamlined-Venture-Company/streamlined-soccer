@@ -262,6 +262,7 @@ export interface Database {
           enabled: boolean;
           alert_channel: 'in_app' | 'email' | 'whatsapp_dm' | 'push';
           relay_url: string | null;
+          notify_topic: string | null;
           created_at: string;
           updated_at: string;
           created_by: string | null;
@@ -274,6 +275,7 @@ export interface Database {
           enabled?: boolean;
           alert_channel?: 'in_app' | 'email' | 'whatsapp_dm' | 'push';
           relay_url?: string | null;
+          notify_topic?: string | null;
           created_by?: string | null;
         };
         Update: {
@@ -283,6 +285,7 @@ export interface Database {
           enabled?: boolean;
           alert_channel?: 'in_app' | 'email' | 'whatsapp_dm' | 'push';
           relay_url?: string | null;
+          notify_topic?: string | null;
         };
       };
       club_members: {
