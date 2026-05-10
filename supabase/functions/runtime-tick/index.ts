@@ -286,12 +286,15 @@ Deno.serve(async () => {
       for (const s of (schedules ?? []) as SessionSchedule[]) {
         type Decision = { kind: string; target: 'group' | 'self_dm'; reason: string };
         const fires: Decision[] = [];
-        if (s.confirmation_enabled && s.confirmation_time) {
+        // Source of truth is destination ('off' / 'group' / 'organiser_dm').
+        // Legacy *_enabled booleans are kept in the schema for back-compat but
+        // are no longer load-bearing — destination='off' is the off switch.
+        if (s.confirmation_destination !== 'off' && s.confirmation_time) {
           const cDow = dowDaysBefore(s.weekly_post_dow, s.confirmation_days_before);
           if (local.dow === cDow && nowMinutes === timeToMinutes(s.confirmation_time)) fires.push({ kind: 'confirmation_dm', target: 'self_dm', reason: `${s.confirmation_days_before}d before call-out at ${s.confirmation_time}` });
         }
-        if (local.dow === s.weekly_post_dow && nowMinutes === timeToMinutes(s.weekly_post_time)) fires.push({ kind: 'callout_poll', target: 'group', reason: `weekly_post at ${s.weekly_post_time}` });
-        if (s.nudge_enabled && s.nudge_time) {
+        if (s.callout_destination !== 'off' && local.dow === s.weekly_post_dow && nowMinutes === timeToMinutes(s.weekly_post_time)) fires.push({ kind: 'callout_poll', target: 'group', reason: `weekly_post at ${s.weekly_post_time}` });
+        if (s.nudge_destination !== 'off' && s.nudge_time) {
           const nDow = dowDaysBefore(s.kickoff_dow, s.nudge_days_before);
           if (local.dow === nDow && nowMinutes === timeToMinutes(s.nudge_time)) fires.push({ kind: 'nudge', target: 'group', reason: `${s.nudge_days_before === 0 ? 'same day' : `${s.nudge_days_before}d before`} at ${s.nudge_time}` });
         }
@@ -324,7 +327,7 @@ Deno.serve(async () => {
       catch (e) { await log({ kind: 'error', summary: `refresh signups crashed: ${(e as Error).message}`, details: { stack: (e as Error).stack?.substring(0, 500) }, club_id: club.id }); }
 
       let posted = 0;
-      try { posted += await postConfirmedLineups(supabase, log, club, ensureSenderJwt); }
+      try { posted += await postConfirmedLineups(supabase, log, club, ensureSenderJwt, ensureSelfJid); }
       catch (e) { await log({ kind: 'error', summary: `post confirmed lineups crashed: ${(e as Error).message}`, details: { stack: (e as Error).stack?.substring(0, 500) }, club_id: club.id }); }
 
       allDecisions.push(...decisions);
@@ -979,6 +982,7 @@ async function postConfirmedLineups(
   log: (row: any) => Promise<unknown>,
   club: Club,
   ensureSenderJwt: () => Promise<string | null>,
+  ensureSelfJid: () => Promise<string | null>,
 ): Promise<number> {
   const { data: lineups, error } = await supabase
     .from('lineups')

@@ -376,7 +376,7 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
             label="Auto-cancel"
             timing={`At team-gen time (${merged.team_gen_offset_hours}h before kickoff) if signups < ${merged.cancel_below_players}`}
             desc='Group: bot posts "called off" + cancels the session automatically. DM me: bot DMs you a draft + still marks cancelled internally. Off: never auto-cancels.'
-            warnWhenGroup="Will auto-post to the group"
+            warnWhenGroup='Will auto-post a "called off" message to your group if signups drop below the floor'
           />
           <MessageDestinationRow
             value={(merged.approval_destination ?? 'organiser_dm') as MessageDestination}

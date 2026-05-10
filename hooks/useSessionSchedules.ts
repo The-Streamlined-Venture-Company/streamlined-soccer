@@ -67,7 +67,12 @@ export function useSessionSchedules(): UseSessionSchedulesReturn {
       setIsLoading(false);
       return;
     }
+    // RLS scopes the rows to the caller's clubs, but we still want a clean
+    // loading state on club switch (the previous club's schedules shouldn't
+    // be visible during refetch).
+    setIsLoading(true);
     setError(null);
+    setSchedules([]);
     const { data, error: fetchError } = await supabase
       .from('session_schedules')
       .select('*')
@@ -86,8 +91,10 @@ export function useSessionSchedules(): UseSessionSchedulesReturn {
       setIsLoading(false);
       return;
     }
+    // Re-load whenever the club changes — previous data must not leak into
+    // the new club's view.
     load();
-  }, [isAuthenticated, isPasswordRecovery, load]);
+  }, [isAuthenticated, isPasswordRecovery, currentClubId, load]);
 
   const add = useCallback(
     async (insert: SessionScheduleInsert) => {
