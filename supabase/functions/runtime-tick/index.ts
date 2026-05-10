@@ -117,19 +117,24 @@ function buildKickoffAt(matchDate: string, kickoffTime: string, timezone: string
   return `${matchDate} ${time} ${timezone}`;
 }
 
+type Destination = 'off' | 'group' | 'organiser_dm';
+
 interface SessionSchedule {
   id: string; name: string; enabled: boolean;
   kickoff_dow: number; kickoff_time: string; pitch_label: string | null;
   weekly_post_dow: number; weekly_post_time: string;
-  // Per-message toggles. confirmation/nudge/mom existed; the rest are new.
-  // Defaults: callout/team_post/mom_results/approval_dm = true; auto_cancel = false.
   confirmation_enabled: boolean; confirmation_days_before: number; confirmation_time: string | null;
   nudge_enabled: boolean; nudge_days_before: number; nudge_time: string;
-  callout_enabled: boolean;
-  team_post_enabled: boolean;
-  auto_cancel_enabled: boolean;
-  mom_results_enabled: boolean;
-  approval_dm_enabled: boolean;
+  // Per-message destinations: 'off' / 'group' / 'organiser_dm' (the runtime
+  // honours these — the legacy *_enabled booleans are retained for
+  // back-compat but are no longer the source of truth at fire time).
+  confirmation_destination: Destination;
+  callout_destination: Destination;
+  nudge_destination: Destination;
+  auto_cancel_destination: Destination;
+  approval_destination: Destination;
+  team_post_destination: Destination;
+  mom_results_destination: Destination;
   team_gen_offset_hours: number; team_gen_require_approval: boolean;
   team_force_post_minutes_before_kickoff: number;
   mom_enabled: boolean; match_duration_minutes: number; mom_delay_minutes: number; mom_results_post_minutes: number;
@@ -138,6 +143,11 @@ interface SessionSchedule {
   nudge_below_players: number; cancel_below_players: number;
   callout_poll_question: string; callout_poll_options: string[];
   whatsapp_group_jid: string | null; whatsapp_group_name: string | null;
+}
+
+/** Wrap a body in a "this is what I'd post" preface for organiser_dm copy/paste mode. */
+function wrapForCopyPaste(messageName: string, body: string): string {
+  return `📝 *Draft: ${messageName}*\n\nHere's what I'd post to your group — copy/paste it if you want to send.\n\n— — — —\n\n${body}`;
 }
 
 interface PlayerRow {
@@ -300,11 +310,11 @@ Deno.serve(async () => {
           decisions.push({ club_id: club.id, club: club.name, schedule_id: s.id, schedule: s.name, ...d });
           if (d.kind === 'callout_poll') await fireCalloutPoll(supabase, log, club, s, local, ensureSenderJwt);
           else if (d.kind === 'confirmation_dm') await fireConfirmationDm(supabase, log, club, s, local, ensureSenderJwt, ensureSelfJid);
-          else if (d.kind === 'nudge') await fireNudge(supabase, log, club, s, local, ensureSenderJwt);
+          else if (d.kind === 'nudge') await fireNudge(supabase, log, club, s, local, ensureSenderJwt, ensureSelfJid);
           else if (d.kind === 'team_gen') await fireTeamGen(supabase, log, club, s, local, ensureSenderJwt, ensureSelfJid);
           else if (d.kind === 'team_force_post') await fireTeamForcePost(supabase, log, club, s, local, ensureSenderJwt);
           else if (d.kind === 'mom_poll') await fireMomPoll(supabase, log, club, s, local, ensureSenderJwt, ensureSelfJid);
-          else if (d.kind === 'mom_results') await fireMomResults(supabase, log, club, s, local, ensureSenderJwt);
+          else if (d.kind === 'mom_results') await fireMomResults(supabase, log, club, s, local, ensureSenderJwt, ensureSelfJid);
           else await log({ session_schedule_id: s.id, club_id: club.id, kind: 'decided', summary: `${s.name}: ${d.kind} → ${d.target} (dry-run, ${d.reason})`, details: { decision: d, local } });
         }
       }
@@ -353,6 +363,10 @@ async function fireConfirmationDm(
   const kickoffAt = buildKickoffAt(matchDate, s.kickoff_time, club.timezone);
   const ws = await getOrCreateWeeklySession(supabase, club.id, s.id, matchDate, kickoffAt, log);
   if (!ws) return;
+  if (s.confirmation_destination === 'off') {
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: confirmation skipped — destination=off` });
+    return;
+  }
   const skipStates = ['confirmation_sent', 'confirmation_declined', 'callout_sent', 'morning_nudge_sent', 'followup_sent', 'teams_pending_approval', 'teams_posted', 'mom_sent', 'mom_closed', 'cancelled'];
   if (skipStates.includes(ws.state)) {
     await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: confirmation skipped — weekly_session in state '${ws.state}'` });
@@ -487,15 +501,40 @@ async function fireCalloutPoll(
     await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: callout already past in state '${ws.state}'` });
     return;
   }
-  if (!s.callout_enabled) {
-    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: call-out skipped — callout_enabled=false` });
+  if (s.callout_destination === 'off') {
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: call-out skipped — destination=off` });
     return;
   }
-  if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no whatsapp_group_jid` }); return; }
   const jwt = await ensureSenderJwt();
   if (!jwt) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no JWT` }); return; }
   const question = renderCallOutQuestion(s);
   const options = (s.callout_poll_options && s.callout_poll_options.length >= 2) ? s.callout_poll_options : ['In ✅', 'Out ❌', 'Maybe 🤔'];
+
+  // Organiser-DM mode: bot DMs the organiser the call-out poll text +
+  // options for them to recreate as a poll in the group manually. Note:
+  // signups will NOT be tracked automatically because there's no group poll.
+  if (s.callout_destination === 'organiser_dm') {
+    const selfJid = await ensureSelfJid();
+    if (!selfJid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `callout DM: no self JID` }); return; }
+    const draftBody =
+      `*Question:* ${question}\n\n` +
+      `*Options:*\n${options.map(o => `• ${o}`).join('\n')}\n\n` +
+      `_Heads up: when you post this manually, the bot can't auto-track signups from a group poll it didn't create. You'd need to update signup counts manually if you rely on the rest of the flow._`;
+    const text = wrapForCopyPaste('Call-out poll', draftBody);
+    const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: selfJid, text }) });
+      if (!r.ok) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `callout DM ${r.status}`, details: { body: (await r.text()).substring(0, 300) } }); return; }
+    } catch (e) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `callout DM net err: ${(e as Error).message}` }); return; }
+    // Move state along so we don't repeat next minute. Mark callout_chat_jid
+    // = self so refresh-signups can still try (though it'll find nothing).
+    await supabase.from('weekly_sessions').update({ state: 'callout_sent', callout_chat_jid: selfJid }).eq('id', ws.id);
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: callout draft DMed to organiser (organiser_dm mode) for ${matchDate}`, details: { destination: 'organiser_dm', question, options } });
+    return;
+  }
+
+  // Default: post the poll to the group.
+  if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no whatsapp_group_jid` }); return; }
   const url = RELAY_URL.replace(/\/$/, '') + '/poll?connection=user';
   let resp: Response;
   try { resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, question, options, selectableCount: 1 }) }); }
@@ -516,6 +555,7 @@ async function fireNudge(
   s: SessionSchedule,
   local: { dow: number; hh: number; mm: number; ymd: string },
   ensureSenderJwt: () => Promise<string | null>,
+  ensureSelfJid: () => Promise<string | null>,
 ): Promise<void> {
   const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
   const { data: ws, error: wsErr } = await supabase
@@ -550,15 +590,31 @@ async function fireNudge(
     await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: nudge skipped — already at ${ws.signups_in}/${nudgeFloor} nudge floor` });
     return;
   }
-  if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no whatsapp_group_jid` }); return; }
+  if (s.nudge_destination === 'off') {
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: nudge skipped — destination=off` });
+    return;
+  }
   const jwt = await ensureSenderJwt();
   if (!jwt) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no JWT` }); return; }
 
   const sameDay = s.nudge_days_before === 0;
   const text = renderNudge(s, ws.signups_in, sameDay);
   const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
+
+  // Resolve destination: group post or organiser DM (copy/paste).
+  let to: string;
+  if (s.nudge_destination === 'organiser_dm') {
+    const selfJid = await ensureSelfJid();
+    if (!selfJid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `nudge DM: no self JID` }); return; }
+    to = selfJid;
+  } else {
+    if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no whatsapp_group_jid` }); return; }
+    to = s.whatsapp_group_jid;
+  }
+  const body = s.nudge_destination === 'organiser_dm' ? wrapForCopyPaste('Low-signup nudge', text) : text;
+
   let resp: Response;
-  try { resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text }) }); }
+  try { resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to, text: body }) }); }
   catch (e) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `relay net err: ${(e as Error).message}` }); return; }
   const respText = await resp.text();
   if (!resp.ok) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `relay ${resp.status} on /message`, details: { body: respText.substring(0, 300) } }); return; }
@@ -566,7 +622,7 @@ async function fireNudge(
   // Don't change main state — keep callout_sent so vote refresh keeps working.
   // Use morning_nudge_message_id column as the "sent this week" sentinel.
   await supabase.from('weekly_sessions').update({ morning_nudge_message_id: 'sent' }).eq('id', ws.id);
-  await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: nudge sent (${ws.signups_in}/${s.target_players}, min ${s.min_players})`, details: { signups_in: ws.signups_in, target: s.target_players, min: s.min_players, same_day: sameDay, text: text.substring(0, 200) } });
+  await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: nudge sent (${ws.signups_in}/${s.target_players}, min ${s.min_players}) to ${s.nudge_destination}`, details: { signups_in: ws.signups_in, target: s.target_players, min: s.min_players, same_day: sameDay, destination: s.nudge_destination, text: body.substring(0, 200) } });
 }
 
 // ── Team Balancer ──────────────────────────────────────────────────────────
@@ -725,35 +781,43 @@ async function fireTeamGen(
     return;
   }
 
-  // Auto-cancel if signups are below the cancellation floor. Skip team gen
-  // entirely, post a "called off" message to the group, mark the session
-  // cancelled. Only triggers when:
-  //   - auto_cancel_enabled is true (organiser opted into it), AND
-  //   - no forced lineup is set (organiser override always beats auto-cancel).
-  // If auto_cancel_enabled is false, we proceed with team gen as if signup
-  // count were fine — the threshold then only drives the nudge copy.
+  // Auto-cancel if signups are below the cancellation floor. Behaviour
+  // depends on `auto_cancel_destination`:
+  //   - 'off'           : never auto-cancel; team gen proceeds with whoever signed up.
+  //   - 'group'         : post "called off" to group + mark session cancelled.
+  //   - 'organiser_dm'  : DM organiser a draft "I'd cancel" notice + mark cancelled (no group post).
+  // Forced lineup always beats auto-cancel.
   const cancelFloor = Number(s.cancel_below_players ?? s.min_players);
   const forcedPlayerIdsForCheck: string[] = Array.isArray(ws.forced_lineup_player_ids) ? ws.forced_lineup_player_ids : [];
-  if (s.auto_cancel_enabled === true && forcedPlayerIdsForCheck.length === 0 && Number(ws.signups_in ?? 0) < cancelFloor) {
-    if (s.whatsapp_group_jid) {
-      const jwt = await ensureSenderJwt();
-      if (jwt) {
-        const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
-        const time = s.kickoff_time?.substring(0, 5) ?? '';
-        const pitch = s.pitch_label ? ` — ${s.pitch_label}` : '';
-        const text =
-          `🚫 *${dayName} football${pitch} called off*\n\n` +
-          `Only *${ws.signups_in ?? 0}* signed up — we need at least *${cancelFloor}* to play. Sorry team, see you next week ⚽`;
-        const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
+  const autoCancelDest = s.auto_cancel_destination ?? 'off';
+  if (autoCancelDest !== 'off' && forcedPlayerIdsForCheck.length === 0 && Number(ws.signups_in ?? 0) < cancelFloor) {
+    const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
+    const time = s.kickoff_time?.substring(0, 5) ?? '';
+    const pitch = s.pitch_label ? ` — ${s.pitch_label}` : '';
+    const cancelText =
+      `🚫 *${dayName} football${pitch} called off*\n\n` +
+      `Only *${ws.signups_in ?? 0}* signed up — we need at least *${cancelFloor}* to play. Sorry team, see you next week ⚽`;
+    const jwt = await ensureSenderJwt();
+    if (jwt) {
+      const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
+      let to: string | null = null;
+      let body = cancelText;
+      if (autoCancelDest === 'organiser_dm') {
+        to = await ensureSelfJid();
+        body = wrapForCopyPaste('Auto-cancel notice', cancelText);
+      } else if (s.whatsapp_group_jid) {
+        to = s.whatsapp_group_jid;
+      }
+      if (to) {
         try {
-          await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text }) });
+          await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to, text: body }) });
         } catch (e) {
           await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `cancel post net err: ${(e as Error).message}` });
         }
       }
     }
     await supabase.from('weekly_sessions').update({ state: 'cancelled' }).eq('id', ws.id);
-    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: AUTO-CANCELLED — only ${ws.signups_in ?? 0} signups (floor ${cancelFloor})`, details: { signups_in: ws.signups_in ?? 0, cancel_floor: cancelFloor } });
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: AUTO-CANCELLED → ${autoCancelDest} — ${ws.signups_in ?? 0} signups (floor ${cancelFloor})`, details: { signups_in: ws.signups_in ?? 0, cancel_floor: cancelFloor, destination: autoCancelDest } });
     return;
   }
 
@@ -886,8 +950,8 @@ async function fireTeamGen(
     return;
   }
 
-  if (s.approval_dm_enabled === false) {
-    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: approval DM skipped — approval_dm_enabled=false. Lineup ${lineupIns.id} stays in pending_approval until you confirm or force-post fires.` });
+  if (s.approval_destination === 'off') {
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: approval DM skipped — destination=off. Lineup ${lineupIns.id} stays in pending_approval until you confirm or force-post fires.` });
     return;
   }
 
@@ -931,14 +995,12 @@ async function postConfirmedLineups(
       .from('session_schedules').select('*').eq('id', lineup.session_schedule_id).single();
     if (!sched) { await log({ kind: 'error', summary: `lineup ${lineup.id}: schedule not found` }); continue; }
     const s = sched as SessionSchedule;
-    if (s.team_post_enabled === false) {
-      await log({ session_schedule_id: s.id, kind: 'skipped', summary: `${s.name}: team image post skipped — team_post_enabled=false. Lineup ${lineup.id} ready but not auto-shared.` });
-      // Mark posted_at so we don't keep retrying every tick. The lineup row
-      // itself stays as 'confirmed' for the organiser to share manually.
+    const teamDest = s.team_post_destination ?? 'group';
+    if (teamDest === 'off') {
+      await log({ session_schedule_id: s.id, kind: 'skipped', summary: `${s.name}: team image post skipped — destination=off. Lineup ${lineup.id} ready but not auto-shared.` });
       await supabase.from('lineups').update({ posted_at: new Date().toISOString() }).eq('id', lineup.id);
       continue;
     }
-    if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, kind: 'error', summary: `lineup ${lineup.id}: no group_jid` }); continue; }
 
     const positions = (Array.isArray(lineup.player_positions) ? lineup.player_positions : []) as LineupPosition[];
     if (positions.length === 0) { await log({ session_schedule_id: s.id, kind: 'error', summary: `lineup ${lineup.id}: empty positions` }); continue; }
@@ -946,19 +1008,29 @@ async function postConfirmedLineups(
     const jwt = await ensureSenderJwt();
     if (!jwt) continue;
 
-    // Post ONLY the pitch image (with a short caption). Text roster list is
-    // redundant once the visual is there — the user explicitly asked for image-only.
-    // Cache-bust based on lineup updated_at so rendering changes propagate
-    // even with Vercel's aggressive image-response cache.
+    // Resolve target jid — group or organiser DM.
+    let targetJid: string | null = null;
+    if (teamDest === 'organiser_dm') {
+      targetJid = await ensureSelfJid();
+      if (!targetJid) { await log({ session_schedule_id: s.id, kind: 'error', summary: `team image DM: no self JID` }); continue; }
+    } else {
+      if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, kind: 'error', summary: `lineup ${lineup.id}: no group_jid` }); continue; }
+      targetJid = s.whatsapp_group_jid;
+    }
+
     const cacheBust = lineup.updated_at ? Date.parse(lineup.updated_at) : Date.now();
     const imageUrl = `${APP_URL}/api/lineup-image?id=${encodeURIComponent(lineup.id)}&v=${cacheBust}`;
     const mediaUrl = RELAY_URL.replace(/\/$/, '') + '/media?connection=user';
     let mResp: Response;
     try {
+      const body: Record<string, unknown> = { to: targetJid, type: 'image', url: imageUrl };
+      if (teamDest === 'organiser_dm') {
+        body.caption = '📝 *Draft: Team image*\n\nHere\'s the lineup. Forward / share to your group when ready.';
+      }
       mResp = await fetch(mediaUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
-        body: JSON.stringify({ to: s.whatsapp_group_jid, type: 'image', url: imageUrl }),
+        body: JSON.stringify(body),
       });
     } catch (e) {
       await log({ session_schedule_id: s.id, kind: 'error', summary: `team image net err: ${(e as Error).message}` });
@@ -970,13 +1042,13 @@ async function postConfirmedLineups(
       continue;
     }
 
-    // Mark lineup posted + update weekly_session
+    // Mark lineup posted + update weekly_session.
     await supabase.from('lineups').update({ status: 'posted', posted_at: new Date().toISOString() }).eq('id', lineup.id);
     if (lineup.match_date) {
       await supabase.from('weekly_sessions').update({ state: 'teams_posted' })
         .eq('session_schedule_id', s.id).eq('match_date', lineup.match_date);
     }
-    await log({ session_schedule_id: s.id, kind: 'sent', summary: `${s.name}: teams (image) posted to ${s.whatsapp_group_name ?? s.whatsapp_group_jid}`, details: { lineup_id: lineup.id, players: positions.length, image_url: imageUrl } });
+    await log({ session_schedule_id: s.id, kind: 'sent', summary: `${s.name}: teams (image) → ${teamDest === 'organiser_dm' ? 'organiser DM (copy/paste mode)' : (s.whatsapp_group_name ?? s.whatsapp_group_jid)}`, details: { lineup_id: lineup.id, players: positions.length, image_url: imageUrl, destination: teamDest } });
     posted++;
   }
   return posted;
@@ -1218,6 +1290,7 @@ async function fireMomResults(
   s: SessionSchedule,
   local: { dow: number; hh: number; mm: number; ymd: string },
   ensureSenderJwt: () => Promise<string | null>,
+  ensureSelfJid: () => Promise<string | null>,
 ): Promise<void> {
   const matchDate = nextKickoffDate(local.ymd, local.dow, s.kickoff_dow);
   const { data: ws } = await supabase
@@ -1226,9 +1299,9 @@ async function fireMomResults(
   if (!ws) return;
   if (ws.state === 'cancelled' || ws.state === 'confirmation_declined') { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — state '${ws.state}'` }); return; }
   if (ws.mom_results_message_id) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results already posted` }); return; }
-  if (s.mom_results_enabled === false) {
-    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — mom_results_enabled=false. Tally is in soccer.mom_votes if you want to look.` });
-    // Mark as posted so we don't keep evaluating this fire on every tick.
+  const resultsDest = s.mom_results_destination ?? 'group';
+  if (resultsDest === 'off') {
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — destination=off. Tally is in soccer.mom_votes if you want to look.` });
     await supabase.from('weekly_sessions').update({ state: 'mom_closed', mom_results_message_id: 'suppressed' }).eq('id', ws.id);
     return;
   }
@@ -1301,13 +1374,23 @@ async function fireMomResults(
       `Nice one ${firstName} 👏`;
   }
 
-  if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_results: no group_jid' }); return; }
+  // Resolve destination.
+  let to: string | null = null;
+  let outBody = body;
+  if (resultsDest === 'organiser_dm') {
+    to = await ensureSelfJid();
+    if (!to) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_results DM: no self JID' }); return; }
+    outBody = wrapForCopyPaste('MoM winner announcement', body);
+  } else {
+    if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_results: no group_jid' }); return; }
+    to = s.whatsapp_group_jid;
+  }
   const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
   try {
-    const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text: body }) });
+    const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to, text: outBody }) });
     if (!resp.ok) { const b = await resp.text(); await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom_results post ${resp.status}`, details: { body: b.substring(0, 300) } }); return; }
     await supabase.from('weekly_sessions').update({ state: 'mom_closed', mom_results_message_id: 'sent' }).eq('id', ws.id);
-    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: MoM results posted (${totalVotes} total votes)`, details: { total_votes: totalVotes, ranked: ranked.map(([id, v]) => ({ name: nameById.get(id) ?? '?', votes: v })), text: body.substring(0, 400) } });
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: MoM results → ${resultsDest} (${totalVotes} total votes)`, details: { total_votes: totalVotes, destination: resultsDest, ranked: ranked.map(([id, v]) => ({ name: nameById.get(id) ?? '?', votes: v })), text: outBody.substring(0, 400) } });
   } catch (e) {
     await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom_results net err: ${(e as Error).message}` });
   }

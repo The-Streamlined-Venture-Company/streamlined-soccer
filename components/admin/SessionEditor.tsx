@@ -116,61 +116,89 @@ const Toggle: React.FC<{
 );
 
 /**
- * Per-message toggle row used in the "Automated messages" panel. Renders the
- * same switch as <Toggle/> but with a richer body — target, timing, and a
- * one-line description so it's clear what fires and where.
+ * Per-message destination row used in the "Automated messages" panel. Three
+ * choices — Off / DM organiser / Send to group — except for messages that
+ * inherently can't go to the group (confirmation, approval), which only get
+ * Off and DM.
  */
-const MessageToggle: React.FC<{
-  checked: boolean;
-  onChange: (v: boolean) => void;
+type MessageDestination = 'off' | 'group' | 'organiser_dm';
+
+const MessageDestinationRow: React.FC<{
+  value: MessageDestination;
+  onChange: (v: MessageDestination) => void;
   label: string;
-  target: string;
   timing: string;
   desc: string;
-  warn?: boolean;
-  warnLabel?: string;
-}> = ({ checked, onChange, label, target, timing, desc, warn, warnLabel }) => (
-  <div
-    className={`flex items-start gap-3 px-3 py-3 rounded-lg border transition-colors ${
-      warn
-        ? 'border-amber-500/40 bg-amber-500/5'
-        : checked
-          ? 'border-slate-700 bg-slate-900/40'
-          : 'border-slate-800 bg-slate-900/20 opacity-70'
-    }`}
-  >
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative mt-0.5 w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
-        checked ? 'bg-emerald-500' : 'bg-slate-700'
+  /** When true, suppresses the "group" choice (DM-only messages). */
+  dmOnly?: boolean;
+  /** Caller-supplied warn-when-on label, e.g. for auto-cancel. */
+  warnWhenGroup?: string;
+}> = ({ value, onChange, label, timing, desc, dmOnly, warnWhenGroup }) => {
+  const choices: { value: MessageDestination; label: string; sub?: string }[] = dmOnly
+    ? [
+        { value: 'off',           label: 'Off' },
+        { value: 'organiser_dm',  label: 'DM me',     sub: 'Sent privately' },
+      ]
+    : [
+        { value: 'off',           label: 'Off' },
+        { value: 'organiser_dm',  label: 'DM me',     sub: 'Copy/paste' },
+        { value: 'group',         label: 'Group',     sub: 'Auto-post' },
+      ];
+
+  const isOn = value !== 'off';
+  const showWarn = warnWhenGroup && value === 'group';
+
+  return (
+    <div
+      className={`px-3 py-3 rounded-lg border transition-colors ${
+        showWarn
+          ? 'border-amber-500/40 bg-amber-500/5'
+          : isOn
+            ? 'border-slate-700 bg-slate-900/40'
+            : 'border-slate-800 bg-slate-900/20 opacity-80'
       }`}
     >
-      <span
-        className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-          checked ? 'translate-x-5' : ''
-        }`}
-      />
-    </button>
-    <div className="flex-1 min-w-0">
       <div className="flex items-baseline gap-2 flex-wrap">
         <span className="text-white text-sm font-semibold">{label}</span>
-        <span className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">
-          {target}
-        </span>
       </div>
       <div className="text-emerald-400/70 text-[11px] mt-0.5 font-medium">{timing}</div>
       <div className="text-slate-400 text-xs mt-1 leading-snug">{desc}</div>
-      {warn && warnLabel && checked && (
-        <div className="text-amber-300 text-[11px] font-bold mt-1.5 uppercase tracking-wider">
-          ⚠ {warnLabel}
+      <div className="grid gap-1.5 mt-3" style={{ gridTemplateColumns: `repeat(${choices.length}, minmax(0, 1fr))` }}>
+        {choices.map(c => {
+          const selected = value === c.value;
+          return (
+            <button
+              key={c.value}
+              type="button"
+              onClick={() => onChange(c.value)}
+              className={`px-2.5 py-2 rounded-md text-xs font-bold transition-all border ${
+                selected
+                  ? c.value === 'off'
+                    ? 'bg-slate-800 border-slate-600 text-slate-200'
+                    : c.value === 'organiser_dm'
+                      ? 'bg-emerald-500/15 border-emerald-500/60 text-emerald-200'
+                      : 'bg-emerald-500/15 border-emerald-500/60 text-emerald-200'
+                  : 'bg-transparent border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700'
+              }`}
+            >
+              <div className="uppercase tracking-wider">{c.label}</div>
+              {c.sub && (
+                <div className={`text-[9px] mt-0.5 normal-case tracking-normal ${selected ? 'opacity-90' : 'opacity-70'}`}>
+                  {c.sub}
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {showWarn && (
+        <div className="text-amber-300 text-[11px] font-bold mt-2 uppercase tracking-wider">
+          ⚠ {warnWhenGroup}
         </div>
       )}
     </div>
-  </div>
-);
+  );
+};
 
 const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 function dayName(dow: number): string {
@@ -297,92 +325,84 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
         </Field>
       </SubSection>
 
-      {/* Automated messages — master kill switches per outbound message */}
+      {/* Automated messages — destination per outbound message */}
       <SubSection
         title="Automated messages"
         summary={(() => {
-          const all = [
-            merged.callout_enabled, merged.confirmation_enabled, merged.nudge_enabled,
-            merged.approval_dm_enabled, merged.team_post_enabled, merged.mom_enabled,
-            merged.mom_results_enabled,
+          const dests: MessageDestination[] = [
+            (merged.confirmation_destination ?? 'organiser_dm') as MessageDestination,
+            (merged.callout_destination ?? 'group') as MessageDestination,
+            (merged.nudge_destination ?? 'group') as MessageDestination,
+            (merged.auto_cancel_destination ?? 'off') as MessageDestination,
+            (merged.approval_destination ?? 'organiser_dm') as MessageDestination,
+            (merged.team_post_destination ?? 'group') as MessageDestination,
+            (merged.mom_results_destination ?? 'group') as MessageDestination,
           ];
-          const on = all.filter(Boolean).length;
-          const auto = merged.auto_cancel_enabled ? ' · auto-cancel ON' : '';
-          return `${on}/${all.length} on${auto}`;
+          const on = dests.filter(d => d !== 'off').length;
+          const dm = dests.filter(d => d === 'organiser_dm').length;
+          return `${on}/${dests.length} on${dm > 0 ? ` · ${dm} via DM` : ''}`;
         })()}
         defaultOpen
       >
         <p className="text-xs text-slate-500 leading-relaxed -mt-2">
-          Every message the bot can send. Turn anything off to stop it firing — the rest of the flow keeps working.
+          Every automated message. <span className="text-emerald-400 font-bold">DM me</span> sends it privately for you to copy/paste manually. <span className="text-emerald-400 font-bold">Group</span> posts it directly. <span className="text-slate-400 font-bold">Off</span> suppresses the message.
         </p>
         <div className="space-y-2">
-          <MessageToggle
-            checked={merged.confirmation_enabled}
-            onChange={v => set('confirmation_enabled', v)}
+          <MessageDestinationRow
+            value={(merged.confirmation_destination ?? 'organiser_dm') as MessageDestination}
+            onChange={v => set('confirmation_destination', v as 'off' | 'organiser_dm')}
             label="Confirmation DM"
-            target="DM to organiser"
             timing={`${merged.confirmation_days_before}d before call-out at ${merged.confirmation_time?.slice(0, 5) ?? '—'}`}
             desc="A short DM the day before the call-out so you can cancel that week if needed."
+            dmOnly
           />
-          <MessageToggle
-            checked={merged.callout_enabled}
-            onChange={v => set('callout_enabled', v)}
+          <MessageDestinationRow
+            value={(merged.callout_destination ?? 'group') as MessageDestination}
+            onChange={v => set('callout_destination', v)}
             label="Call-out poll"
-            target="Group post"
             timing={`${dayName(merged.weekly_post_dow)} at ${merged.weekly_post_time?.slice(0, 5) ?? '—'}`}
-            desc="The weekly &quot;Are you in?&quot; poll. Without this, no signups can come in."
-            warn={!merged.callout_enabled}
+            desc={'The weekly "Are you in?" poll. DM mode sends the question + options to you to recreate manually — heads up: when DMed, signup tracking won\'t work automatically.'}
           />
-          <MessageToggle
-            checked={merged.nudge_enabled}
-            onChange={v => set('nudge_enabled', v)}
+          <MessageDestinationRow
+            value={(merged.nudge_destination ?? 'group') as MessageDestination}
+            onChange={v => set('nudge_destination', v)}
             label="Low-signup nudge"
-            target="Group post"
             timing={`${merged.nudge_days_before === 0 ? 'Same day' : `${merged.nudge_days_before}d before`} at ${merged.nudge_time?.slice(0, 5) ?? '—'} (if signups < ${merged.nudge_below_players})`}
-            desc="A reminder pinging the group when signups are below the nudge threshold."
+            desc="A reminder pinging the group when signups are low. DM mode sends you a draft to copy/paste."
           />
-          <MessageToggle
-            checked={merged.auto_cancel_enabled}
-            onChange={v => set('auto_cancel_enabled', v)}
-            label="Auto-cancel post"
-            target="Group post"
+          <MessageDestinationRow
+            value={(merged.auto_cancel_destination ?? 'off') as MessageDestination}
+            onChange={v => set('auto_cancel_destination', v)}
+            label="Auto-cancel"
             timing={`At team-gen time (${merged.team_gen_offset_hours}h before kickoff) if signups < ${merged.cancel_below_players}`}
-            desc={`When ON, the bot posts a "🚫 game called off" message and cancels the session automatically. When OFF, the threshold only drives the nudge copy ("we need X or game's off") — you cancel manually.`}
-            warn={merged.auto_cancel_enabled}
-            warnLabel="Will auto-post to the group"
+            desc='Group: bot posts "called off" + cancels the session automatically. DM me: bot DMs you a draft + still marks cancelled internally. Off: never auto-cancels.'
+            warnWhenGroup="Will auto-post to the group"
           />
-          <MessageToggle
-            checked={merged.approval_dm_enabled}
-            onChange={v => set('approval_dm_enabled', v)}
+          <MessageDestinationRow
+            value={(merged.approval_destination ?? 'organiser_dm') as MessageDestination}
+            onChange={v => set('approval_destination', v as 'off' | 'organiser_dm')}
             label="Lineup approval DM"
-            target="DM to organiser"
             timing={`${merged.team_gen_offset_hours}h before kickoff (only if approval is required)`}
             desc="A DM with a link to preview/edit/approve the auto-balanced lineup before it posts."
+            dmOnly
           />
-          <MessageToggle
-            checked={merged.team_post_enabled}
-            onChange={v => set('team_post_enabled', v)}
+          <MessageDestinationRow
+            value={(merged.team_post_destination ?? 'group') as MessageDestination}
+            onChange={v => set('team_post_destination', v)}
             label="Team image post"
-            target="Group post"
             timing="As soon as the lineup is confirmed (or force-posted)"
-            desc="The pitch image showing the two balanced teams. If off, the lineup is generated but not auto-shared."
+            desc="The pitch image showing the two balanced teams. DM mode sends the image to you to forward."
           />
-          <MessageToggle
-            checked={merged.mom_enabled}
-            onChange={v => set('mom_enabled', v)}
-            label="Man-of-the-Match vote"
-            target={merged.mom_method === 'web_link' ? 'Group post (vote link)' : merged.mom_method === 'organiser_dm' ? 'DM to organiser (poll)' : 'Per-player DM polls'}
-            timing={`${merged.match_duration_minutes + merged.mom_delay_minutes}min after kickoff`}
-            desc="The MoM voting message — link, organiser-only DM poll, or per-player DM polls (per the method below)."
-          />
-          <MessageToggle
-            checked={merged.mom_results_enabled}
-            onChange={v => set('mom_results_enabled', v)}
+          <MessageDestinationRow
+            value={(merged.mom_results_destination ?? 'group') as MessageDestination}
+            onChange={v => set('mom_results_destination', v)}
             label="MoM winner announcement"
-            target="Group post"
             timing={`${merged.mom_results_post_minutes}min after the MoM message`}
-            desc="The post announcing the winner + runner-up. Off means votes still get tallied but you announce manually."
+            desc="The post announcing the winner + runner-up. DM mode sends you a draft."
           />
+        </div>
+        <div className="text-[10px] text-slate-500 leading-snug mt-1">
+          MoM voting itself uses the method below (Vote link / WhatsApp poll / Organiser DM) — destination is part of that method.
         </div>
       </SubSection>
 
