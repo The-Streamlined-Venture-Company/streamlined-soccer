@@ -745,7 +745,13 @@ const SessionEditorV2: React.FC<Props> = ({
           merged.mom_enabled
             ? `${formatDurationMinutes(merged.mom_results_post_minutes)} window · ${
                 merged.mom_method === 'web_link'
-                  ? 'vote link'
+                  ? `vote link (${
+                      merged.mom_link_destination === 'organiser_dm'
+                        ? 'DM me'
+                        : merged.mom_link_destination === 'off'
+                          ? 'off'
+                          : 'group'
+                    })`
                   : merged.mom_method === 'whatsapp_poll'
                     ? 'WhatsApp poll'
                     : 'organiser DM'
@@ -833,8 +839,18 @@ const SessionEditorV2: React.FC<Props> = ({
         {merged.mom_enabled && merged.mom_method === 'web_link' && (
           <MessageCard
             title="MoM vote-link post"
-            summary="Group post containing the anonymous vote link"
-            desc="The text WhatsApp sees right after the match, pointing to the anonymous web vote."
+            summary={
+              merged.mom_link_destination === 'off'
+                ? 'Off — link in runtime logs only; you share manually'
+                : merged.mom_link_destination === 'organiser_dm'
+                  ? 'DMed to you as a draft to copy/paste'
+                  : 'Posted directly to the group'
+            }
+            destination={{
+              value: (merged.mom_link_destination ?? 'group') as MessageDestination,
+              onChange: v => set('mom_link_destination', v),
+            }}
+            desc="The post containing the anonymous vote link. DM mode sends you the draft so you can share it manually — votes still aggregate the same way."
             template={{ meta: getTpl('mom_link'), session: merged, onChange: v => set('mom_link_template', v) }}
           />
         )}

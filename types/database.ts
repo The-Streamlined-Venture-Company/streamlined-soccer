@@ -347,6 +347,7 @@ export interface Database {
           approval_destination: 'off' | 'organiser_dm';
           team_post_destination: 'off' | 'group' | 'organiser_dm';
           mom_results_destination: 'off' | 'group' | 'organiser_dm';
+          mom_link_destination: 'off' | 'group' | 'organiser_dm';
           team_gen_offset_hours: number;
           team_force_post_minutes_before_kickoff: number;
           mom_enabled: boolean;
@@ -411,6 +412,7 @@ export interface Database {
           approval_destination?: 'off' | 'organiser_dm';
           team_post_destination?: 'off' | 'group' | 'organiser_dm';
           mom_results_destination?: 'off' | 'group' | 'organiser_dm';
+          mom_link_destination?: 'off' | 'group' | 'organiser_dm';
           team_gen_offset_hours?: number;
           team_force_post_minutes_before_kickoff?: number;
           mom_enabled?: boolean;
@@ -464,6 +466,7 @@ export interface Database {
           approval_destination?: 'off' | 'organiser_dm';
           team_post_destination?: 'off' | 'group' | 'organiser_dm';
           mom_results_destination?: 'off' | 'group' | 'organiser_dm';
+          mom_link_destination?: 'off' | 'group' | 'organiser_dm';
           team_gen_offset_hours?: number;
           team_force_post_minutes_before_kickoff?: number;
           mom_enabled?: boolean;

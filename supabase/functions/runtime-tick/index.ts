@@ -231,6 +231,10 @@ interface SessionSchedule {
   team_caption_template: string | null;
   mom_link_template: string | null;
   mom_results_template: string | null;
+  // Where the MoM web-link post lands when mom_method=web_link. Defaults to
+  // 'group' (post to WhatsApp group). 'organiser_dm' = DM the organiser the
+  // link as a draft. 'off' = don't post anything; URL is in runtime logs.
+  mom_link_destination: Destination;
   whatsapp_group_jid: string | null; whatsapp_group_name: string | null;
 }
 
@@ -1272,16 +1276,16 @@ async function fireMomPoll(
   }
 
   if (s.mom_method === 'web_link') {
-    // Web-link flow: post an anonymous vote link to the group. Players tap,
-    // pick, dedup is per-device. Aggregation reads from soccer.mom_votes.
-    if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_poll: no whatsapp_group_jid' }); return; }
+    // Web-link flow: anonymous vote link. The link is generated and the
+    // soccer.mom_votes table is the canonical tally regardless of how the
+    // organiser distributes the URL. mom_link_destination controls who
+    // receives the link from the bot:
+    //   'group'        → bot posts to the WhatsApp group (default)
+    //   'organiser_dm' → bot DMs the organiser as a draft to copy/paste
+    //   'off'          → bot doesn't post anything; URL exists in runtime logs
+    const linkDest: Destination = (s.mom_link_destination ?? 'group') as Destination;
 
-    // Generate the token in memory but DO NOT persist mom_message_id until the
-    // relay POST succeeds. If we set the sentinel first and the relay POST
-    // fails, the next minute's tick refuses to retry — voters never get the
-    // link, and fireMomResults later posts "no votes were cast" on an empty
-    // tally. Persist the token first so we have a stable URL across retries,
-    // then attempt the relay POST, and only then mark the message as sent.
+    // Persist the token first so the URL is stable across retries.
     const voteToken = ws.mom_vote_token ?? generateToken();
     if (!ws.mom_vote_token) {
       const { error: tokErr } = await supabase
@@ -1301,25 +1305,50 @@ async function fireMomPoll(
       return `${m} min`;
     })();
     const tpl = s.mom_link_template || DEFAULT_MOM_LINK_TPL;
-    const text = applyTemplate(tpl, { day: dayName, link, window: windowText });
+    const renderedBody = applyTemplate(tpl, { day: dayName, link, window: windowText });
+
+    // Off: skip posting entirely but still mark the message as "sent" with a
+    // suppressed sentinel so fireMomResults can run later off whatever votes
+    // come in (organiser may have shared the URL manually).
+    if (linkDest === 'off') {
+      await supabase
+        .from('weekly_sessions')
+        .update({ mom_message_id: 'web_link_suppressed', state: 'mom_sent' })
+        .eq('id', ws.id);
+      await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: MoM link post suppressed (destination=off)`, details: { link, window_min: windowMin } });
+      return;
+    }
+
+    // Resolve recipient + body wrapper.
+    let recipient: string | null;
+    let body: string;
+    if (linkDest === 'organiser_dm') {
+      recipient = await ensureSelfJid();
+      if (!recipient) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom link DM: no self JID' }); return; }
+      body = wrapForCopyPaste('MoM vote-link post', renderedBody);
+    } else {
+      if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'mom_poll: no whatsapp_group_jid' }); return; }
+      recipient = s.whatsapp_group_jid;
+      body = renderedBody;
+    }
     const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
     try {
-      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text }) });
+      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: recipient, text: body }) });
       if (!resp.ok) {
-        const body = (await resp.text()).substring(0, 300);
-        await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom web link post ${resp.status}`, details: { body } });
+        const errBody = (await resp.text()).substring(0, 300);
+        await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom web link post ${resp.status}`, details: { body: errBody, destination: linkDest } });
         return;  // mom_message_id stays null → next tick can retry
       }
     } catch (e) {
       await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `mom web link net err: ${(e as Error).message}` });
       return;  // mom_message_id stays null → next tick can retry
     }
-    // Relay POST succeeded — NOW mark the message as sent so we don't double-post.
+    // Relay POST succeeded — mark sent so we don't double-post.
     await supabase
       .from('weekly_sessions')
       .update({ mom_message_id: 'web_link', state: 'mom_sent' })
       .eq('id', ws.id);
-    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: MoM vote link posted`, details: { link, window_min: windowMin } });
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'sent', summary: `${s.name}: MoM vote link → ${linkDest === 'organiser_dm' ? 'organiser DM (copy/paste mode)' : 'group'}`, details: { link, window_min: windowMin, destination: linkDest } });
     return;
   }
 
