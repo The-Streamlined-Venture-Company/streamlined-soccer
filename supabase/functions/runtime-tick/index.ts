@@ -389,8 +389,14 @@ Deno.serve(async () => {
         }
         const tMin = timeToMinutes(s.kickoff_time) - Math.round(Number(s.team_gen_offset_hours) * 60);
         if (local.dow === s.kickoff_dow && nowMinutes === tMin) fires.push({ kind: 'team_gen', target: s.team_gen_require_approval ? 'self_dm' : 'group', reason: `${s.team_gen_offset_hours}h before kickoff` });
-        const forceMin = timeToMinutes(s.kickoff_time) - Number(s.team_force_post_minutes_before_kickoff ?? 30);
-        if (local.dow === s.kickoff_dow && nowMinutes === forceMin) fires.push({ kind: 'team_force_post', target: 'group', reason: `${s.team_force_post_minutes_before_kickoff}min before kickoff — force-post if pending` });
+        // Force-post fallback: if value is 0 or negative the organiser has
+        // explicitly disabled the safety net — wait forever for an approval
+        // tap. Otherwise fire at T-N min before kickoff.
+        const forceMinValue = Number(s.team_force_post_minutes_before_kickoff ?? 30);
+        if (forceMinValue > 0) {
+          const forceMin = timeToMinutes(s.kickoff_time) - forceMinValue;
+          if (local.dow === s.kickoff_dow && nowMinutes === forceMin) fires.push({ kind: 'team_force_post', target: 'group', reason: `${forceMinValue}min before kickoff — force-post if pending` });
+        }
         if (s.mom_enabled) {
           const kMin = timeToMinutes(s.kickoff_time);
           const mMin = kMin + Number(s.match_duration_minutes) + Number(s.mom_delay_minutes);

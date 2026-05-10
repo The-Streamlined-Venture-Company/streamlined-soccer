@@ -564,9 +564,13 @@ const SessionEditorV2: React.FC<Props> = ({
         title="3 · Team generation"
         subtitle={
           `${merged.team_gen_offset_hours}h before` +
-          (merged.team_gen_require_approval
-            ? ` · approval required, fallback ${merged.team_force_post_minutes_before_kickoff ?? 30}min before`
-            : ' · auto-post (no approval)') +
+          (merged.approval_destination === 'off'
+            ? ' · teams auto-post (no approval needed)'
+            : ` · approval via DM${
+                (merged.team_force_post_minutes_before_kickoff ?? 30) > 0
+                  ? `, fallback at T-${merged.team_force_post_minutes_before_kickoff ?? 30}min`
+                  : ', no fallback'
+              }`) +
           ((merged.team_gen_instructions ?? '').trim() ? ' · custom rules' : '')
         }
       >
@@ -583,25 +587,6 @@ const SessionEditorV2: React.FC<Props> = ({
               className={inputCls}
             />
           </Field>
-          {merged.team_gen_require_approval && (
-            <Field
-              label="If I don't approve in time, post anyway — minutes before kickoff"
-              hint={
-                'Safety net for the "approval required" flow. If you haven\'t tapped approve by ' +
-                'this offset, the bot promotes the auto-balanced lineup to confirmed and shares it ' +
-                'via the Team image post card below (same destination — Group / DM me / Off). ' +
-                'Set to 30 by default; 0 would fire exactly at kickoff (too late). ' +
-                'This setting is hidden when approval isn\'t required because then teams post directly.'
-              }
-            >
-              <input
-                type="number" min={0} max={1440} step={1}
-                value={merged.team_force_post_minutes_before_kickoff ?? 30}
-                onChange={e => set('team_force_post_minutes_before_kickoff', Number(e.target.value))}
-                className={inputCls}
-              />
-            </Field>
-          )}
           <Field label="Custom rules for the AI" hint="Free-text instructions the balancer follows for this session.">
             <textarea
               rows={4}
@@ -644,34 +629,68 @@ const SessionEditorV2: React.FC<Props> = ({
           </Field>
         </MessageCard>
 
-        {/* Approval DM */}
+        {/* Approval DM — destination IS the control. 'Off' = no approval flow,
+            teams post directly. 'DM me' = require approval, DM goes out, optional
+            fallback if you don't tap. team_gen_require_approval is auto-synced
+            here so it's never out of step with destination. */}
         <MessageCard
           title="Lineup approval DM"
           summary={
             merged.approval_destination === 'off'
-              ? 'Off'
-              : merged.team_gen_require_approval
+              ? 'Off — teams post directly when generated'
+              : (merged.team_force_post_minutes_before_kickoff ?? 30) > 0
                 ? `${merged.team_gen_offset_hours}h before kickoff · fallback at T-${merged.team_force_post_minutes_before_kickoff ?? 30}min`
-                : 'Approval not required — teams post directly when generated'
+                : `${merged.team_gen_offset_hours}h before kickoff · no fallback (approval required)`
           }
           destination={{
             value: (merged.approval_destination ?? 'organiser_dm') as MessageDestination,
-            onChange: v => set('approval_destination', v as 'off' | 'organiser_dm'),
+            onChange: v => {
+              const next = v as 'off' | 'organiser_dm';
+              set('approval_destination', next);
+              // Auto-sync the legacy require-approval boolean so the runtime gate
+              // matches the user's mental model: Off = no approval flow at all.
+              set('team_gen_require_approval', next !== 'off');
+            },
             dmOnly: true,
           }}
-          desc="DM with a link to preview/edit/approve the auto-balanced lineup before it posts."
+          desc={
+            merged.approval_destination === 'off'
+              ? 'Teams will be auto-balanced at the offset above and posted directly via the Team image post card below — no approval step.'
+              : "DM with a link to preview/edit/approve the auto-balanced lineup before it posts. Without your approval, the lineup waits — set the fallback below if you'd like a safety net."
+          }
           template={{ meta: getTpl('approval'), session: merged, onChange: v => set('approval_template', v) }}
         >
-          <Toggle
-            checked={merged.team_gen_require_approval}
-            onChange={v => set('team_gen_require_approval', v)}
-            label="Send teams to me first for approval"
-            hint={
-              merged.team_gen_require_approval
-                ? `If you don't tap approve by T-${merged.team_force_post_minutes_before_kickoff ?? 30}min before kickoff, the auto-balanced lineup posts anyway via the Team image post card below.`
-                : 'Off: teams post directly to whatever destination the Team image post card has set, no DM sent.'
-            }
-          />
+          {merged.approval_destination !== 'off' && (
+            <div className="space-y-3 pt-1">
+              <Toggle
+                checked={(merged.team_force_post_minutes_before_kickoff ?? 30) > 0}
+                onChange={v =>
+                  // Toggle on → 30 (sensible default). Toggle off → 0, which the
+                  // runtime treats as "never auto-post; wait for me forever".
+                  set('team_force_post_minutes_before_kickoff', v ? 30 : 0)
+                }
+                label="If I don't approve in time, post the auto-balanced lineup anyway"
+                hint={
+                  (merged.team_force_post_minutes_before_kickoff ?? 30) > 0
+                    ? 'Safety net: the lineup is promoted to confirmed and shared via the Team image post card below. Use this if a forgotten approval would mean nobody knows the teams.'
+                    : 'Off: the lineup waits for your approval indefinitely. If you forget, no team image gets posted.'
+                }
+              />
+              {(merged.team_force_post_minutes_before_kickoff ?? 30) > 0 && (
+                <Field
+                  label={<>Minutes before kickoff <TimezoneTag tz={tz} /></>}
+                  hint={`30 is a safe default (last call to react). Lower = closer to kickoff = less time to react.`}
+                >
+                  <input
+                    type="number" min={1} max={1440} step={1}
+                    value={merged.team_force_post_minutes_before_kickoff ?? 30}
+                    onChange={e => set('team_force_post_minutes_before_kickoff', Math.max(1, Number(e.target.value)))}
+                    className={inputCls}
+                  />
+                </Field>
+              )}
+            </div>
+          )}
         </MessageCard>
 
         {/* Team image post */}
