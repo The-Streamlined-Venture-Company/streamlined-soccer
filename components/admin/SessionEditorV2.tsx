@@ -562,7 +562,13 @@ const SessionEditorV2: React.FC<Props> = ({
       {/* ────────────────────────────────────────────────────────────────── */}
       <Section
         title="3 · Team generation"
-        subtitle={`${merged.team_gen_offset_hours}h before · force-post ${merged.team_force_post_minutes_before_kickoff ?? 30}min before${(merged.team_gen_instructions ?? '').trim() ? ' · custom rules' : ''}`}
+        subtitle={
+          `${merged.team_gen_offset_hours}h before` +
+          (merged.team_gen_require_approval
+            ? ` · approval required, fallback ${merged.team_force_post_minutes_before_kickoff ?? 30}min before`
+            : ' · auto-post (no approval)') +
+          ((merged.team_gen_instructions ?? '').trim() ? ' · custom rules' : '')
+        }
       >
         {/* Common settings */}
         <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-3 space-y-3">
@@ -577,17 +583,25 @@ const SessionEditorV2: React.FC<Props> = ({
               className={inputCls}
             />
           </Field>
-          <Field
-            label="Force-post if not approved — minutes before kickoff"
-            hint="If you haven't confirmed by this offset, the auto-balanced lineup posts as-is."
-          >
-            <input
-              type="number" min={0} max={1440} step={1}
-              value={merged.team_force_post_minutes_before_kickoff ?? 30}
-              onChange={e => set('team_force_post_minutes_before_kickoff', Number(e.target.value))}
-              className={inputCls}
-            />
-          </Field>
+          {merged.team_gen_require_approval && (
+            <Field
+              label="If I don't approve in time, post anyway — minutes before kickoff"
+              hint={
+                'Safety net for the "approval required" flow. If you haven\'t tapped approve by ' +
+                'this offset, the bot promotes the auto-balanced lineup to confirmed and shares it ' +
+                'via the Team image post card below (same destination — Group / DM me / Off). ' +
+                'Set to 30 by default; 0 would fire exactly at kickoff (too late). ' +
+                'This setting is hidden when approval isn\'t required because then teams post directly.'
+              }
+            >
+              <input
+                type="number" min={0} max={1440} step={1}
+                value={merged.team_force_post_minutes_before_kickoff ?? 30}
+                onChange={e => set('team_force_post_minutes_before_kickoff', Number(e.target.value))}
+                className={inputCls}
+              />
+            </Field>
+          )}
           <Field label="Custom rules for the AI" hint="Free-text instructions the balancer follows for this session.">
             <textarea
               rows={4}
@@ -637,8 +651,8 @@ const SessionEditorV2: React.FC<Props> = ({
             merged.approval_destination === 'off'
               ? 'Off'
               : merged.team_gen_require_approval
-                ? `${merged.team_gen_offset_hours}h before kickoff · approval required`
-                : 'Approval not required — DM only sent if you flip the toggle'
+                ? `${merged.team_gen_offset_hours}h before kickoff · fallback at T-${merged.team_force_post_minutes_before_kickoff ?? 30}min`
+                : 'Approval not required — teams post directly when generated'
           }
           destination={{
             value: (merged.approval_destination ?? 'organiser_dm') as MessageDestination,
@@ -652,7 +666,11 @@ const SessionEditorV2: React.FC<Props> = ({
             checked={merged.team_gen_require_approval}
             onChange={v => set('team_gen_require_approval', v)}
             label="Send teams to me first for approval"
-            hint="If you don't act before kickoff, the auto-balanced teams post anyway (force-post offset above)."
+            hint={
+              merged.team_gen_require_approval
+                ? `If you don't tap approve by T-${merged.team_force_post_minutes_before_kickoff ?? 30}min before kickoff, the auto-balanced lineup posts anyway via the Team image post card below.`
+                : 'Off: teams post directly to whatever destination the Team image post card has set, no DM sent.'
+            }
           />
         </MessageCard>
 
