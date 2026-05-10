@@ -185,18 +185,44 @@ const MessageCard: React.FC<{
   );
 };
 
-// ── Section heading — the 5 top-level sections of the consolidated layout.
-const Section: React.FC<{ title: string; subtitle?: string; children: React.ReactNode }> = ({
-  title, subtitle, children,
-}) => (
-  <section className="space-y-3">
-    <header className="flex items-baseline justify-between gap-3 pb-1 border-b border-slate-800">
-      <h3 className="text-emerald-400 text-[11px] font-black uppercase tracking-[0.2em]">{title}</h3>
-      {subtitle && <span className="text-slate-500 text-[10px] truncate">{subtitle}</span>}
-    </header>
-    <div className="space-y-3">{children}</div>
-  </section>
-);
+// ── Top-level section — collapsible. Defaults to closed so the editor opens
+// as a tidy 5-row table of contents with the subtitle giving status at a glance,
+// matching the SubSection pattern from the classic editor.
+const Section: React.FC<{
+  title: string;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}> = ({ title, subtitle, defaultOpen = false, children }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="rounded-xl border border-slate-800 bg-slate-900/20 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-800/30 transition-colors"
+      >
+        <div className="flex-1 min-w-0">
+          <h3 className="text-emerald-400 text-[11px] font-black uppercase tracking-[0.2em]">
+            {title}
+          </h3>
+          {subtitle && (
+            <div className="text-slate-500 text-[11px] mt-1 truncate">{subtitle}</div>
+          )}
+        </div>
+        <svg
+          className={`w-4 h-4 text-slate-500 transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 pt-1 space-y-3 border-t border-slate-800/60">{children}</div>
+      )}
+    </section>
+  );
+};
 
 const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 function dayName(dow: number): string {
