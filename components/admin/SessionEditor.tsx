@@ -1,8 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SessionSchedule, SessionScheduleUpdate, DAYS_OF_WEEK } from '../../types/database';
 import GroupPicker from './GroupPicker';
 import { renderCallOutQuestion, formatDurationMinutes } from '../../lib/sampleMessages';
 import { useRegisterDirty } from '../../contexts/DirtyChangesContext';
+import { useClub } from '../../contexts/ClubContext';
+import {
+  TEMPLATES,
+  TEMPLATE_COLUMN,
+  TemplateId,
+  TemplateMeta,
+  renderTemplatePreview,
+} from '../../lib/messageTemplates';
 
 interface SessionEditorProps {
   schedule: SessionSchedule;
@@ -72,7 +80,7 @@ const SubSection: React.FC<SubSectionProps> = ({
   );
 };
 
-const Field: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({
+const Field: React.FC<{ label: React.ReactNode; hint?: string; children: React.ReactNode }> = ({
   label,
   hint,
   children,
@@ -205,6 +213,184 @@ function dayName(dow: number): string {
   return DOW_NAMES[dow] ?? '?';
 }
 
+// ── Timezone helpers ──────────────────────────────────────────────────────
+// Live-ticking HH:mm in the given IANA tz, used in the "All times in X" banner
+// at the top of the editor so the organiser is never guessing.
+function useLiveTimeIn(tz: string | null): string {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  if (!tz) return '';
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(now);
+  } catch {
+    return '';
+  }
+}
+
+/** Compact timezone abbreviation, e.g. "GST" / "BST" / "GMT+4". */
+function tzAbbrev(tz: string | null): string {
+  if (!tz) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      timeZoneName: 'short',
+    }).formatToParts(new Date());
+    return parts.find(p => p.type === 'timeZoneName')?.value ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Suffix shown next to every <input type="time"> so it's unambiguous which
+ * timezone the value is being interpreted in. Renders e.g. "in Asia/Dubai (GST)".
+ */
+const TimezoneTag: React.FC<{ tz: string | null }> = ({ tz }) => {
+  if (!tz) return null;
+  const abbr = tzAbbrev(tz);
+  return (
+    <span className="text-slate-500 text-[10px] font-medium ml-2">
+      in <span className="text-slate-300">{tz}</span>
+      {abbr && <span className="text-slate-500"> ({abbr})</span>}
+    </span>
+  );
+};
+
+// ── Per-message template editor ───────────────────────────────────────────
+// Collapsible "Customise wording" expander shown beneath each
+// MessageDestinationRow. NULL value = use built-in default.
+const MessageTemplateExpander: React.FC<{
+  meta: TemplateMeta;
+  session: SessionSchedule;
+  onChange: (next: string | null) => void;
+}> = ({ meta, session, onChange }) => {
+  const column = TEMPLATE_COLUMN[meta.id];
+  const value = (session[column] as string | null) ?? null;
+  const isCustom = value !== null && value.trim().length > 0;
+  const [open, setOpen] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Live-rendered preview using sample values
+  const preview = useMemo(() => {
+    const tpl = (value ?? meta.default);
+    return renderTemplatePreview(meta, session, tpl);
+  }, [value, meta, session]);
+
+  /** Insert `{var}` at the textarea cursor, leaving focus where it lands. */
+  const insertVar = (varName: string) => {
+    const ta = taRef.current;
+    const current = value ?? meta.default;
+    if (!ta) {
+      onChange(current + `{${varName}}`);
+      return;
+    }
+    const start = ta.selectionStart ?? current.length;
+    const end = ta.selectionEnd ?? current.length;
+    const next = current.slice(0, start) + `{${varName}}` + current.slice(end);
+    onChange(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      const cursor = start + varName.length + 2;
+      ta.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-300 transition-colors flex items-center gap-1.5"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform ${open ? 'rotate-90' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        {open ? 'Hide wording' : 'Customise wording'}
+        {isCustom && (
+          <span className="text-[9px] font-black px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded uppercase tracking-widest">
+            Custom
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-2 pl-4 border-l-2 border-slate-800">
+          <div>
+            <div className="text-slate-500 text-[10px] font-black uppercase tracking-wider mb-1">
+              Available variables
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {meta.variables.map(v => (
+                <button
+                  key={v.name}
+                  type="button"
+                  onClick={() => insertVar(v.name)}
+                  title={v.hint}
+                  className="text-[10px] font-mono px-1.5 py-0.5 bg-slate-900 hover:bg-emerald-500/15 border border-slate-800 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-200 rounded transition-colors"
+                >
+                  {`{${v.name}}`}
+                </button>
+              ))}
+            </div>
+            <div className="text-slate-500 text-[10px] mt-1">
+              Click a variable to insert at the cursor.
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-baseline justify-between mb-1">
+              <label className="text-slate-300 text-[10px] font-black uppercase tracking-wider">
+                Message template
+              </label>
+              {isCustom && (
+                <button
+                  type="button"
+                  onClick={() => onChange(null)}
+                  className="text-[10px] text-slate-500 hover:text-rose-300 underline"
+                  title="Revert to the built-in default"
+                >
+                  Reset to default
+                </button>
+              )}
+            </div>
+            <textarea
+              ref={taRef}
+              rows={Math.max(4, ((value ?? meta.default).match(/\n/g)?.length ?? 0) + 2)}
+              value={value ?? meta.default}
+              onChange={e => {
+                const next = e.target.value;
+                // Empty / unchanged-from-default → revert to NULL so future
+                // default tweaks apply automatically.
+                onChange(next === meta.default || next.trim() === '' ? null : next);
+              }}
+              className={`${inputCls} font-mono text-xs leading-relaxed`}
+              placeholder={meta.default}
+            />
+          </div>
+
+          <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs">
+            <div className="text-slate-500 text-[10px] font-black uppercase tracking-wider mb-1">
+              Preview · sample values
+            </div>
+            <div className="text-emerald-100 whitespace-pre-wrap font-sans">{preview}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SessionEditor: React.FC<SessionEditorProps> = ({
   schedule,
   relayUrl,
@@ -214,6 +400,10 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
 }) => {
   const [draft, setDraft] = useState<Draft>({});
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const { currentClub } = useClub();
+  const tz = currentClub?.timezone ?? null;
+  const liveLocal = useLiveTimeIn(tz);
+  const tzAbbr = tzAbbrev(tz);
 
   useEffect(() => {
     setDraft({});
@@ -225,6 +415,10 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
   const set = <K extends keyof SessionSchedule>(k: K, v: SessionSchedule[K]) => {
     setDraft(prev => ({ ...prev, [k]: v }));
   };
+
+  /** Look up template metadata by id — small helper for the per-row inline expander. */
+  const getTemplate = (id: TemplateId): TemplateMeta =>
+    TEMPLATES.find(t => t.id === id)!;
 
   // Register with the page-level Save bar
   useRegisterDirty(
@@ -258,12 +452,29 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
         />
       </div>
 
+      {/* Timezone banner — every time field below is interpreted in this tz */}
+      {tz && (
+        <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/20 text-[12px]">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-emerald-300 font-bold uppercase tracking-wider text-[10px]">
+              All times in
+            </span>
+            <span className="text-white font-semibold">{tz}</span>
+            {tzAbbr && <span className="text-slate-400">({tzAbbr})</span>}
+          </div>
+          <div className="text-slate-400">
+            now: <span className="text-emerald-200 font-mono">{liveLocal}</span>
+          </div>
+        </div>
+      )}
+
       {/* Schedule */}
       <SubSection
         title="Schedule"
         summary={
           <>
             {DAYS_OF_WEEK[merged.kickoff_dow]} {timeInputValue(merged.kickoff_time)}
+            {tzAbbr && <span className="text-slate-600"> {tzAbbr}</span>}
             {merged.pitch_label ? ` · ${merged.pitch_label}` : ''}
             {' · call-out '}
             {DAYS_OF_WEEK[merged.weekly_post_dow]} {timeInputValue(merged.weekly_post_time)}
@@ -284,7 +495,7 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
               ))}
             </select>
           </Field>
-          <Field label="Kickoff">
+          <Field label={<>Kickoff <TimezoneTag tz={tz} /></>}>
             <input
               type="time"
               value={timeInputValue(merged.kickoff_time)}
@@ -305,7 +516,7 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
               ))}
             </select>
           </Field>
-          <Field label="Call-out time">
+          <Field label={<>Call-out time <TimezoneTag tz={tz} /></>}>
             <input
               type="time"
               value={timeInputValue(merged.weekly_post_time)}
@@ -348,58 +559,123 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
           Every automated message. <span className="text-emerald-400 font-bold">DM me</span> sends it privately for you to copy/paste manually. <span className="text-emerald-400 font-bold">Group</span> posts it directly. <span className="text-slate-400 font-bold">Off</span> suppresses the message.
         </p>
         <div className="space-y-2">
-          <MessageDestinationRow
-            value={(merged.confirmation_destination ?? 'organiser_dm') as MessageDestination}
-            onChange={v => set('confirmation_destination', v as 'off' | 'organiser_dm')}
-            label="Confirmation DM"
-            timing={`${merged.confirmation_days_before}d before call-out at ${merged.confirmation_time?.slice(0, 5) ?? '—'}`}
-            desc="A short DM the day before the call-out so you can cancel that week if needed."
-            dmOnly
-          />
-          <MessageDestinationRow
-            value={(merged.callout_destination ?? 'group') as MessageDestination}
-            onChange={v => set('callout_destination', v)}
-            label="Call-out poll"
-            timing={`${dayName(merged.weekly_post_dow)} at ${merged.weekly_post_time?.slice(0, 5) ?? '—'}`}
-            desc={'The weekly "Are you in?" poll. DM mode sends the question + options to you to recreate manually — heads up: when DMed, signup tracking won\'t work automatically.'}
-          />
-          <MessageDestinationRow
-            value={(merged.nudge_destination ?? 'group') as MessageDestination}
-            onChange={v => set('nudge_destination', v)}
-            label="Low-signup nudge"
-            timing={`${merged.nudge_days_before === 0 ? 'Same day' : `${merged.nudge_days_before}d before`} at ${merged.nudge_time?.slice(0, 5) ?? '—'} (if signups < ${merged.nudge_below_players})`}
-            desc="A reminder pinging the group when signups are low. DM mode sends you a draft to copy/paste."
-          />
-          <MessageDestinationRow
-            value={(merged.auto_cancel_destination ?? 'off') as MessageDestination}
-            onChange={v => set('auto_cancel_destination', v)}
-            label="Auto-cancel"
-            timing={`At team-gen time (${merged.team_gen_offset_hours}h before kickoff) if signups < ${merged.cancel_below_players}`}
-            desc='Group: bot posts "called off" + cancels the session automatically. DM me: bot DMs you a draft + still marks cancelled internally. Off: never auto-cancels.'
-            warnWhenGroup='Will auto-post a "called off" message to your group if signups drop below the floor'
-          />
-          <MessageDestinationRow
-            value={(merged.approval_destination ?? 'organiser_dm') as MessageDestination}
-            onChange={v => set('approval_destination', v as 'off' | 'organiser_dm')}
-            label="Lineup approval DM"
-            timing={`${merged.team_gen_offset_hours}h before kickoff (only if approval is required)`}
-            desc="A DM with a link to preview/edit/approve the auto-balanced lineup before it posts."
-            dmOnly
-          />
-          <MessageDestinationRow
-            value={(merged.team_post_destination ?? 'group') as MessageDestination}
-            onChange={v => set('team_post_destination', v)}
-            label="Team image post"
-            timing="As soon as the lineup is confirmed (or force-posted)"
-            desc="The pitch image showing the two balanced teams. DM mode sends the image to you to forward."
-          />
-          <MessageDestinationRow
-            value={(merged.mom_results_destination ?? 'group') as MessageDestination}
-            onChange={v => set('mom_results_destination', v)}
-            label="MoM winner announcement"
-            timing={`${merged.mom_results_post_minutes}min after the MoM message`}
-            desc="The post announcing the winner + runner-up. DM mode sends you a draft."
-          />
+          <div>
+            <MessageDestinationRow
+              value={(merged.confirmation_destination ?? 'organiser_dm') as MessageDestination}
+              onChange={v => set('confirmation_destination', v as 'off' | 'organiser_dm')}
+              label="Confirmation DM"
+              timing={`${merged.confirmation_days_before}d before call-out at ${merged.confirmation_time?.slice(0, 5) ?? '—'}${tzAbbr ? ` ${tzAbbr}` : ''}`}
+              desc="A short DM the day before the call-out so you can cancel that week if needed."
+              dmOnly
+            />
+            <MessageTemplateExpander
+              meta={getTemplate('confirmation')}
+              session={merged}
+              onChange={v => set('confirmation_template', v)}
+            />
+          </div>
+          <div>
+            <MessageDestinationRow
+              value={(merged.callout_destination ?? 'group') as MessageDestination}
+              onChange={v => set('callout_destination', v)}
+              label="Call-out poll"
+              timing={`${dayName(merged.weekly_post_dow)} at ${merged.weekly_post_time?.slice(0, 5) ?? '—'}${tzAbbr ? ` ${tzAbbr}` : ''}`}
+              desc={'The weekly "Are you in?" poll. DM mode sends the question + options to you to recreate manually — heads up: when DMed, signup tracking won\'t work automatically.'}
+            />
+            <div className="text-[10px] text-slate-500 leading-snug mt-2 pl-3">
+              The call-out poll question is editable in the <span className="font-semibold text-slate-400">Call-out poll</span> section below — it's a poll, not a free-text message.
+            </div>
+          </div>
+          <div>
+            <MessageDestinationRow
+              value={(merged.nudge_destination ?? 'group') as MessageDestination}
+              onChange={v => set('nudge_destination', v)}
+              label="Low-signup nudge"
+              timing={`${merged.nudge_days_before === 0 ? 'Same day' : `${merged.nudge_days_before}d before`} at ${merged.nudge_time?.slice(0, 5) ?? '—'}${tzAbbr ? ` ${tzAbbr}` : ''} (if signups < ${merged.nudge_below_players})`}
+              desc="A reminder pinging the group when signups are low. DM mode sends you a draft to copy/paste."
+            />
+            <MessageTemplateExpander
+              meta={getTemplate('nudge')}
+              session={merged}
+              onChange={v => set('nudge_template', v)}
+            />
+          </div>
+          <div>
+            <MessageDestinationRow
+              value={(merged.auto_cancel_destination ?? 'off') as MessageDestination}
+              onChange={v => set('auto_cancel_destination', v)}
+              label="Auto-cancel"
+              timing={`At team-gen time (${merged.team_gen_offset_hours}h before kickoff) if signups < ${merged.cancel_below_players}`}
+              desc='Group: bot posts "called off" + cancels the session automatically. DM me: bot DMs you a draft + still marks cancelled internally. Off: never auto-cancels.'
+              warnWhenGroup='Will auto-post a "called off" message to your group if signups drop below the floor'
+            />
+            <MessageTemplateExpander
+              meta={getTemplate('auto_cancel')}
+              session={merged}
+              onChange={v => set('auto_cancel_template', v)}
+            />
+          </div>
+          <div>
+            <MessageDestinationRow
+              value={(merged.approval_destination ?? 'organiser_dm') as MessageDestination}
+              onChange={v => set('approval_destination', v as 'off' | 'organiser_dm')}
+              label="Lineup approval DM"
+              timing={`${merged.team_gen_offset_hours}h before kickoff (only if approval is required)`}
+              desc="A DM with a link to preview/edit/approve the auto-balanced lineup before it posts."
+              dmOnly
+            />
+            <MessageTemplateExpander
+              meta={getTemplate('approval')}
+              session={merged}
+              onChange={v => set('approval_template', v)}
+            />
+          </div>
+          <div>
+            <MessageDestinationRow
+              value={(merged.team_post_destination ?? 'group') as MessageDestination}
+              onChange={v => set('team_post_destination', v)}
+              label="Team image post"
+              timing="As soon as the lineup is confirmed (or force-posted)"
+              desc="The pitch image showing the two balanced teams. DM mode sends the image to you to forward."
+            />
+            <MessageTemplateExpander
+              meta={getTemplate('team_caption')}
+              session={merged}
+              onChange={v => set('team_caption_template', v)}
+            />
+          </div>
+          <div>
+            <MessageDestinationRow
+              value={(merged.mom_results_destination ?? 'group') as MessageDestination}
+              onChange={v => set('mom_results_destination', v)}
+              label="MoM winner announcement"
+              timing={`${merged.mom_results_post_minutes}min after the MoM message`}
+              desc="The post announcing the winner + runner-up. DM mode sends you a draft."
+            />
+            <MessageTemplateExpander
+              meta={getTemplate('mom_results')}
+              session={merged}
+              onChange={v => set('mom_results_template', v)}
+            />
+          </div>
+          {merged.mom_method === 'web_link' && (
+            <div>
+              <div className="px-3 py-2 rounded-lg border border-slate-800 bg-slate-900/20">
+                <div className="text-white text-sm font-semibold">MoM vote-link post</div>
+                <div className="text-emerald-400/70 text-[11px] mt-0.5 font-medium">
+                  Posted to the group right after the match (when MoM method = vote link)
+                </div>
+                <div className="text-slate-400 text-xs mt-1 leading-snug">
+                  The group post containing the anonymous vote link.
+                </div>
+              </div>
+              <MessageTemplateExpander
+                meta={getTemplate('mom_link')}
+                session={merged}
+                onChange={v => set('mom_link_template', v)}
+              />
+            </div>
+          )}
         </div>
         <div className="text-[10px] text-slate-500 leading-snug mt-1">
           MoM voting itself uses the method below (Vote link / WhatsApp poll / Organiser DM) — destination is part of that method.
@@ -499,7 +775,7 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
         title="Weekly confirmation"
         summary={
           merged.confirmation_enabled
-            ? `${merged.confirmation_days_before === 0 ? 'Same day' : `${merged.confirmation_days_before} day${merged.confirmation_days_before === 1 ? '' : 's'} before`} at ${timeInputValue(merged.confirmation_time)}`
+            ? `${merged.confirmation_days_before === 0 ? 'Same day' : `${merged.confirmation_days_before} day${merged.confirmation_days_before === 1 ? '' : 's'} before`} at ${timeInputValue(merged.confirmation_time)}${tzAbbr ? ` ${tzAbbr}` : ''}`
             : 'Off'
         }
       >
@@ -521,7 +797,7 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
                 className={inputCls}
               />
             </Field>
-            <Field label="Time">
+            <Field label={<>Time <TimezoneTag tz={tz} /></>}>
               <input
                 type="time"
                 value={timeInputValue(merged.confirmation_time)}
@@ -538,7 +814,7 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
         title="Nudge"
         summary={
           merged.nudge_enabled
-            ? `${merged.nudge_days_before === 0 ? 'Same day' : `${merged.nudge_days_before}d before`} at ${timeInputValue(merged.nudge_time)} (if signups < ${merged.nudge_below_players})`
+            ? `${merged.nudge_days_before === 0 ? 'Same day' : `${merged.nudge_days_before}d before`} at ${timeInputValue(merged.nudge_time)}${tzAbbr ? ` ${tzAbbr}` : ''} (if signups < ${merged.nudge_below_players})`
             : 'Off'
         }
       >
@@ -561,7 +837,7 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
                 className={inputCls}
               />
             </Field>
-            <Field label="Time">
+            <Field label={<>Time <TimezoneTag tz={tz} /></>}>
               <input
                 type="time"
                 value={timeInputValue(merged.nudge_time)}

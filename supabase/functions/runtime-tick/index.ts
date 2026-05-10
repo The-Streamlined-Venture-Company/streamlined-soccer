@@ -46,33 +46,113 @@ function nextKickoffDate(today_ymd: string, today_dow: number, kickoff_dow: numb
   dt.setUTCDate(dt.getUTCDate() + daysAhead);
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
 }
-function renderCallOutQuestion(s: SessionSchedule): string {
-  const tpl = s.callout_poll_question || '⚽ Football {day} at {time}{pitch_suffix}. Need {target}. Are you in?';
-  const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
-  const time = s.kickoff_time?.substring(0, 5) ?? '';
-  const pitch = s.pitch_label ?? '';
-  const subs: Record<string, string> = { '{day}': dayName, '{time}': time, '{pitch}': pitch, '{pitch_suffix}': pitch ? ` — ${pitch}` : '', '{target}': String(s.target_players) };
-  return tpl.replace(/\{(day|time|pitch|pitch_suffix|target)\}/g, m => subs[m] ?? m);
-}
-function renderConfirmationMessage(s: SessionSchedule, token: string): string {
-  const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
-  const time = s.kickoff_time?.substring(0, 5) ?? '';
-  const pitch = s.pitch_label ? ` — ${s.pitch_label}` : '';
-  const link = `${APP_URL}/confirm/${token}`;
-  return `⚽ *${dayName} football at ${time}${pitch}* — still on?\n\nIf nothing changes, the call-out goes out as scheduled.\n\n_Need to skip this week? Tap here:_\n${link}`;
+// Generic `{var}` substitution used for every templated message body.
+// Defaults are duplicated here from lib/messageTemplates.ts (which is the
+// client-side source of truth) — keep them in sync when changing wording.
+function applyTemplate(tpl: string, vars: Record<string, string | number>): string {
+  return tpl.replace(/\{([a-z_]+)\}/g, (whole, name) => {
+    const v = vars[name];
+    return v === undefined || v === null ? whole : String(v);
+  });
 }
 
+function dayNameOf(s: SessionSchedule): string {
+  return Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
+}
+function pitchSuffixOf(s: SessionSchedule): string {
+  return s.pitch_label ? ` — ${s.pitch_label}` : '';
+}
+function pitchDotOf(s: SessionSchedule): string {
+  return s.pitch_label ? ` · ${s.pitch_label}` : '';
+}
+
+function renderCallOutQuestion(s: SessionSchedule): string {
+  const tpl = s.callout_poll_question || '⚽ Football {day} at {time}{pitch_suffix}. Need {target}. Are you in?';
+  const pitch = s.pitch_label ?? '';
+  return applyTemplate(tpl, {
+    day: dayNameOf(s),
+    time: s.kickoff_time?.substring(0, 5) ?? '',
+    pitch,
+    pitch_suffix: pitch ? ` — ${pitch}` : '',
+    target: s.target_players,
+  });
+}
+
+const DEFAULT_CONFIRMATION_TPL =
+  '⚽ *{day} football at {time}{pitch_suffix}* — still on?\n\n' +
+  'If nothing changes, the call-out goes out as scheduled.\n\n' +
+  '_Need to skip this week? Tap here:_\n{link}';
+
+function renderConfirmationMessage(s: SessionSchedule, token: string): string {
+  const tpl = s.confirmation_template || DEFAULT_CONFIRMATION_TPL;
+  return applyTemplate(tpl, {
+    day: dayNameOf(s),
+    time: s.kickoff_time?.substring(0, 5) ?? '',
+    pitch: s.pitch_label ?? '',
+    pitch_suffix: pitchSuffixOf(s),
+    link: `${APP_URL}/confirm/${token}`,
+  });
+}
+
+const DEFAULT_NUDGE_TPL =
+  '🌅 *Football {when}{pitch_suffix}*\n\n' +
+  "We've got *{signups_in}/{target}* so far — still need at least *{need}* more or the game gets called off.\n\n" +
+  "If you're in, vote on the poll above 👆";
+
 function renderNudge(s: SessionSchedule, signedIn: number, sameDay: boolean): string {
-  const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
   const time = s.kickoff_time?.substring(0, 5) ?? '';
-  const pitch = s.pitch_label ? ` — ${s.pitch_label}` : '';
-  // Express the gap relative to the cancel floor — "we need this many or
-  // the game's off" is the most actionable framing.
+  const dayName = dayNameOf(s);
   const cancelFloor = Number(s.cancel_below_players ?? s.min_players);
   const need = Math.max(0, cancelFloor - signedIn);
   const when = sameDay ? `tonight at ${time}` : `${dayName} at ${time}`;
-  return `🌅 *Football ${when}${pitch}*\n\nWe've got *${signedIn}/${s.target_players}* so far — still need at least *${need}* more or the game gets called off.\n\nIf you're in, vote on the poll above 👆`;
+  const tpl = s.nudge_template || DEFAULT_NUDGE_TPL;
+  return applyTemplate(tpl, {
+    day: dayName,
+    time,
+    when,
+    pitch: s.pitch_label ?? '',
+    pitch_suffix: pitchSuffixOf(s),
+    signups_in: signedIn,
+    target: s.target_players,
+    need,
+    cancel_floor: cancelFloor,
+  });
 }
+
+const DEFAULT_AUTO_CANCEL_TPL =
+  '🚫 *{day} football{pitch_suffix} called off*\n\n' +
+  'Only *{signups_in}* signed up — we need at least *{cancel_floor}* to play. Sorry team, see you next week ⚽';
+
+function renderAutoCancel(s: SessionSchedule, signedIn: number, cancelFloor: number): string {
+  const tpl = s.auto_cancel_template || DEFAULT_AUTO_CANCEL_TPL;
+  return applyTemplate(tpl, {
+    day: dayNameOf(s),
+    time: s.kickoff_time?.substring(0, 5) ?? '',
+    pitch: s.pitch_label ?? '',
+    pitch_suffix: pitchSuffixOf(s),
+    signups_in: signedIn,
+    cancel_floor: cancelFloor,
+  });
+}
+
+const DEFAULT_TEAM_CAPTION_TPL =
+  '🏟 *{day} {time}*{pitch_dot}\n\nLate dropouts? Let me know.';
+
+const DEFAULT_MOM_LINK_TPL =
+  '🏆 *Man of the Match — {day}*\n\n' +
+  'Vote privately — anonymous.\n{link}\n\n' +
+  'You have *{window}* to cast your vote ⏱';
+
+const DEFAULT_MOM_RESULTS_TPL =
+  '🏆 *Man of the Match — {day}*\n\n' +
+  'Winner: *{winner}* ({winner_votes} vote{winner_votes_plural}){runner_up_line}\n\n' +
+  'Nice one {winner_first} 👏';
+
+const DEFAULT_APPROVAL_TPL =
+  '🏟 *Teams ready for {day} {time}{pitch_suffix}*\n\n' +
+  "I've auto-balanced {total} players: ⚫ {black_count} vs ⚪ {white_count}.\n\n" +
+  '👉 *Preview, edit, or confirm:*\n{link}\n\n' +
+  "_If I don't hear from you, I'll post these as-is {fallback_min} min before kickoff._";
 
 async function mintUserJwt(userId: string, jwtSecret: string): Promise<string> {
   const header = { alg: 'HS256', typ: 'JWT' };
@@ -142,6 +222,15 @@ interface SessionSchedule {
   target_players: number; min_players: number;
   nudge_below_players: number; cancel_below_players: number;
   callout_poll_question: string; callout_poll_options: string[];
+  // Optional per-session message overrides — NULL = built-in default.
+  // Variable docs in supabase/migrations/20260510000000_message_templates.sql.
+  confirmation_template: string | null;
+  nudge_template: string | null;
+  auto_cancel_template: string | null;
+  approval_template: string | null;
+  team_caption_template: string | null;
+  mom_link_template: string | null;
+  mom_results_template: string | null;
   whatsapp_group_jid: string | null; whatsapp_group_name: string | null;
 }
 
@@ -701,10 +790,14 @@ function balanceTeams(players: PlayerRow[]): { black: PlayerRow[]; white: Player
 
 /** Lean one-line caption that appears below the pitch image in WhatsApp. */
 function renderTeamsCaption(s: SessionSchedule): string {
-  const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
-  const time = s.kickoff_time?.substring(0, 5) ?? '';
-  const pitch = s.pitch_label ? ` · ${s.pitch_label}` : '';
-  return `🏟 *${dayName} ${time}*${pitch}\n\nLate dropouts? Let me know.`;
+  const tpl = s.team_caption_template || DEFAULT_TEAM_CAPTION_TPL;
+  return applyTemplate(tpl, {
+    day: dayNameOf(s),
+    time: s.kickoff_time?.substring(0, 5) ?? '',
+    pitch: s.pitch_label ?? '',
+    pitch_suffix: pitchSuffixOf(s),
+    pitch_dot: pitchDotOf(s),
+  });
 }
 
 function renderTeamAnnouncement(s: SessionSchedule, lineup: LineupPosition[]): string {
@@ -730,23 +823,20 @@ function renderTeamAnnouncement(s: SessionSchedule, lineup: LineupPosition[]): s
 }
 
 function renderApprovalDm(s: SessionSchedule, token: string, lineup: LineupPosition[]): string {
-  const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
-  const time = s.kickoff_time?.substring(0, 5) ?? '';
-  const pitch = s.pitch_label ? ` — ${s.pitch_label}` : '';
-  const link = `${APP_URL}/approve/${token}`;
   const blackN = lineup.filter(p => p.team === 'black').length;
   const whiteN = lineup.filter(p => p.team === 'white').length;
-  const fallbackMin = s.team_force_post_minutes_before_kickoff ?? 30;
-  return [
-    `🏟 *Teams ready for ${dayName} ${time}${pitch}*`,
-    '',
-    `I've auto-balanced ${lineup.length} players: ⚫ ${blackN} vs ⚪ ${whiteN}.`,
-    '',
-    `👉 *Preview, edit, or confirm:*`,
-    link,
-    '',
-    `_If I don't hear from you, I'll post these as-is ${fallbackMin} min before kickoff._`,
-  ].join('\n');
+  const tpl = s.approval_template || DEFAULT_APPROVAL_TPL;
+  return applyTemplate(tpl, {
+    day: dayNameOf(s),
+    time: s.kickoff_time?.substring(0, 5) ?? '',
+    pitch: s.pitch_label ?? '',
+    pitch_suffix: pitchSuffixOf(s),
+    total: lineup.length,
+    black_count: blackN,
+    white_count: whiteN,
+    link: `${APP_URL}/approve/${token}`,
+    fallback_min: s.team_force_post_minutes_before_kickoff ?? 30,
+  });
 }
 
 // ── Team Generation ───────────────────────────────────────────────────────
@@ -794,12 +884,7 @@ async function fireTeamGen(
   const forcedPlayerIdsForCheck: string[] = Array.isArray(ws.forced_lineup_player_ids) ? ws.forced_lineup_player_ids : [];
   const autoCancelDest = s.auto_cancel_destination ?? 'off';
   if (autoCancelDest !== 'off' && forcedPlayerIdsForCheck.length === 0 && Number(ws.signups_in ?? 0) < cancelFloor) {
-    const dayName = Object.keys(DAY_TO_NUM).find(k => DAY_TO_NUM[k] === s.kickoff_dow) ?? '?';
-    const time = s.kickoff_time?.substring(0, 5) ?? '';
-    const pitch = s.pitch_label ? ` — ${s.pitch_label}` : '';
-    const cancelText =
-      `🚫 *${dayName} football${pitch} called off*\n\n` +
-      `Only *${ws.signups_in ?? 0}* signed up — we need at least *${cancelFloor}* to play. Sorry team, see you next week ⚽`;
+    const cancelText = renderAutoCancel(s, Number(ws.signups_in ?? 0), cancelFloor);
     const jwt = await ensureSenderJwt();
     if (jwt) {
       const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
@@ -1029,7 +1114,12 @@ async function postConfirmedLineups(
     try {
       const body: Record<string, unknown> = { to: targetJid, type: 'image', url: imageUrl };
       if (teamDest === 'organiser_dm') {
-        body.caption = '📝 *Draft: Team image*\n\nHere\'s the lineup. Forward / share to your group when ready.';
+        // DM mode: prefix the rendered caption with the standard "Draft" header
+        // so the organiser knows it's not posted yet.
+        body.caption = `📝 *Draft: Team image*\n\n${renderTeamsCaption(s)}`;
+      } else {
+        // Group mode: post the templated caption directly.
+        body.caption = renderTeamsCaption(s);
       }
       mResp = await fetch(mediaUrl, {
         method: 'POST',
@@ -1204,10 +1294,8 @@ async function fireMomPoll(
       if (h > 0 && m > 0) return `${h === 1 ? '1 hour' : `${h} hours`} ${m} min`;
       return `${m} min`;
     })();
-    const text =
-      `🏆 *Man of the Match — ${question.replace('🏆 Man of the Match — ', '').replace('?','')}*\n\n` +
-      `Vote privately — anonymous.\n${link}\n\n` +
-      `You have *${windowText}* to cast your vote ⏱`;
+    const tpl = s.mom_link_template || DEFAULT_MOM_LINK_TPL;
+    const text = applyTemplate(tpl, { day: dayName, link, window: windowText });
     const url = RELAY_URL.replace(/\/$/, '') + '/message?connection=user';
     try {
       const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` }, body: JSON.stringify({ to: s.whatsapp_group_jid, text }) });
@@ -1362,20 +1450,35 @@ async function fireMomResults(
 
   let body: string;
   if (ranked.length === 0 || totalVotes === 0) {
+    // No-votes branch is intentionally not templated — too rare to be
+    // worth the surface area, and an organiser-customised template that
+    // assumes a winner would render badly when there isn't one.
     body = `🏆 *Man of the Match — ${dayName}*\n\nNo votes were cast. No winner crowned this week 🤷`;
   } else {
     const [winnerId, winnerVotes] = ranked[0];
     const winnerName = nameById.get(winnerId) ?? 'Unknown';
     const firstName = winnerName.split(' ')[0];
     let runnerUpLine = '';
+    let runnerUpName = '';
+    let runnerUpVotes = 0;
     if (ranked.length > 1 && ranked[1][1] > 0) {
-      const [ruId, ruVotes] = ranked[1];
-      runnerUpLine = `\nRunner-up: ${nameById.get(ruId) ?? '?'} (${ruVotes} vote${ruVotes === 1 ? '' : 's'})`;
+      const [ruId, ruV] = ranked[1];
+      runnerUpName = nameById.get(ruId) ?? '?';
+      runnerUpVotes = ruV;
+      runnerUpLine = `\nRunner-up: ${runnerUpName} (${ruV} vote${ruV === 1 ? '' : 's'})`;
     }
-    body =
-      `🏆 *Man of the Match — ${dayName}*\n\n` +
-      `Winner: *${winnerName}* (${winnerVotes} vote${winnerVotes === 1 ? '' : 's'})${runnerUpLine}\n\n` +
-      `Nice one ${firstName} 👏`;
+    const tpl = s.mom_results_template || DEFAULT_MOM_RESULTS_TPL;
+    body = applyTemplate(tpl, {
+      day: dayName,
+      winner: winnerName,
+      winner_first: firstName,
+      winner_votes: winnerVotes,
+      winner_votes_plural: winnerVotes === 1 ? '' : 's',
+      runner_up: runnerUpName,
+      runner_up_votes: runnerUpVotes,
+      total_votes: totalVotes,
+      runner_up_line: runnerUpLine,
+    });
   }
 
   // Resolve destination.

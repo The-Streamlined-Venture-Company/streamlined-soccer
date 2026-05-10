@@ -366,6 +366,16 @@ export interface Database {
           team_gen_require_approval: boolean;
           callout_poll_question: string;
           callout_poll_options: string[];
+          // Per-message overrides — NULL means "use built-in default".
+          // Variable docs live in supabase/migrations/20260510000000_message_templates.sql
+          // and lib/messageTemplates.ts (the canonical client-side registry).
+          confirmation_template: string | null;
+          nudge_template: string | null;
+          auto_cancel_template: string | null;
+          approval_template: string | null;
+          team_caption_template: string | null;
+          mom_link_template: string | null;
+          mom_results_template: string | null;
           last_weekly_post_at: string | null;
           last_nudge_at: string | null;
           last_team_gen_at: string | null;
@@ -420,6 +430,13 @@ export interface Database {
           team_gen_require_approval?: boolean;
           callout_poll_question?: string;
           callout_poll_options?: string[];
+          confirmation_template?: string | null;
+          nudge_template?: string | null;
+          auto_cancel_template?: string | null;
+          approval_template?: string | null;
+          team_caption_template?: string | null;
+          mom_link_template?: string | null;
+          mom_results_template?: string | null;
         };
         Update: {
           name?: string;
@@ -466,6 +483,13 @@ export interface Database {
           team_gen_require_approval?: boolean;
           callout_poll_question?: string;
           callout_poll_options?: string[];
+          confirmation_template?: string | null;
+          nudge_template?: string | null;
+          auto_cancel_template?: string | null;
+          approval_template?: string | null;
+          team_caption_template?: string | null;
+          mom_link_template?: string | null;
+          mom_results_template?: string | null;
         };
       };
       team_constraints: {
