@@ -1,8 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSessionSchedules, defaultScheduleInsert } from '../../hooks/useSessionSchedules';
 import { DAYS_OF_WEEK, SessionSchedule } from '../../types/database';
 import SessionEditor from './SessionEditor';
+import SessionEditorV2 from './SessionEditorV2';
 import LoadingSpinner from '../ui/LoadingSpinner';
+
+// localStorage key for the editor-layout preview toggle. While we A/B the
+// consolidated layout vs. the classic layout, the choice persists so an
+// organiser doesn't have to flip back every page-load.
+const LAYOUT_KEY = 'sessionEditorLayout';
+type Layout = 'classic' | 'consolidated';
+function getInitialLayout(): Layout {
+  if (typeof window === 'undefined') return 'classic';
+  const v = window.localStorage.getItem(LAYOUT_KEY);
+  return v === 'consolidated' ? 'consolidated' : 'classic';
+}
 
 interface SessionsListProps {
   relayUrl: string | null;
@@ -25,6 +37,14 @@ const SessionsList: React.FC<SessionsListProps> = ({ relayUrl, whatsAppConnected
   const { schedules, isLoading, error, add, update, remove } = useSessionSchedules();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [layout, setLayout] = useState<Layout>(getInitialLayout);
+
+  // Persist the layout choice across reloads.
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(LAYOUT_KEY, layout);
+    }
+  }, [layout]);
 
   const handleAdd = async () => {
     setIsAdding(true);
@@ -37,6 +57,29 @@ const SessionsList: React.FC<SessionsListProps> = ({ relayUrl, whatsAppConnected
 
   return (
     <div className="space-y-3">
+      {/* A/B layout toggle — temporary while we evaluate the consolidated editor.
+          Sticky-persistent per browser via localStorage. Remove the loser side later. */}
+      <div className="flex items-center justify-end gap-2 text-[10px]">
+        <span className="text-slate-500 uppercase tracking-widest font-bold">Editor layout:</span>
+        <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900/40 overflow-hidden">
+          {(['classic', 'consolidated'] as const).map(opt => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => setLayout(opt)}
+              className={`px-2.5 py-1 font-bold uppercase tracking-wider transition-colors ${
+                layout === opt
+                  ? 'bg-emerald-500/15 text-emerald-200'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+              title={opt === 'consolidated' ? 'New 5-section layout (preview)' : 'Original layout'}
+            >
+              {opt === 'classic' ? 'Classic' : 'Consolidated (new)'}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {error && (
         <div className="bg-red-950/40 border border-red-800/40 rounded-xl p-2.5 text-red-300 text-xs">
           {error}
@@ -95,17 +138,31 @@ const SessionsList: React.FC<SessionsListProps> = ({ relayUrl, whatsAppConnected
 
             {isExpanded && (
               <div className="border-t border-slate-800 p-3">
-                <SessionEditor
-                  schedule={s}
-                  relayUrl={relayUrl}
-                  whatsAppConnected={whatsAppConnected}
-                  onSave={update}
-                  onDelete={async id => {
-                    const ok = await remove(id);
-                    if (ok && expandedId === id) setExpandedId(null);
-                    return ok;
-                  }}
-                />
+                {layout === 'consolidated' ? (
+                  <SessionEditorV2
+                    schedule={s}
+                    relayUrl={relayUrl}
+                    whatsAppConnected={whatsAppConnected}
+                    onSave={update}
+                    onDelete={async id => {
+                      const ok = await remove(id);
+                      if (ok && expandedId === id) setExpandedId(null);
+                      return ok;
+                    }}
+                  />
+                ) : (
+                  <SessionEditor
+                    schedule={s}
+                    relayUrl={relayUrl}
+                    whatsAppConnected={whatsAppConnected}
+                    onSave={update}
+                    onDelete={async id => {
+                      const ok = await remove(id);
+                      if (ok && expandedId === id) setExpandedId(null);
+                      return ok;
+                    }}
+                  />
+                )}
               </div>
             )}
           </div>

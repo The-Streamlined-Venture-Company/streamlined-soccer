@@ -22,12 +22,12 @@ interface SessionEditorProps {
 
 type Draft = Partial<SessionSchedule>;
 
-function timeInputValue(t: string | null | undefined): string {
+export function timeInputValue(t: string | null | undefined): string {
   if (!t) return '';
   return t.length >= 5 ? t.substring(0, 5) : t;
 }
 
-const inputCls =
+export const inputCls =
   'w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-emerald-500 transition-colors';
 
 interface SubSectionProps {
@@ -80,7 +80,7 @@ const SubSection: React.FC<SubSectionProps> = ({
   );
 };
 
-const Field: React.FC<{ label: React.ReactNode; hint?: string; children: React.ReactNode }> = ({
+export const Field: React.FC<{ label: React.ReactNode; hint?: string; children: React.ReactNode }> = ({
   label,
   hint,
   children,
@@ -94,7 +94,7 @@ const Field: React.FC<{ label: React.ReactNode; hint?: string; children: React.R
   </div>
 );
 
-const Toggle: React.FC<{
+export const Toggle: React.FC<{
   checked: boolean;
   onChange: (v: boolean) => void;
   label: string;
@@ -129,9 +129,9 @@ const Toggle: React.FC<{
  * inherently can't go to the group (confirmation, approval), which only get
  * Off and DM.
  */
-type MessageDestination = 'off' | 'group' | 'organiser_dm';
+export type MessageDestination = 'off' | 'group' | 'organiser_dm';
 
-const MessageDestinationRow: React.FC<{
+export const MessageDestinationRow: React.FC<{
   value: MessageDestination;
   onChange: (v: MessageDestination) => void;
   label: string;
@@ -216,7 +216,7 @@ function dayName(dow: number): string {
 // ── Timezone helpers ──────────────────────────────────────────────────────
 // Live-ticking HH:mm in the given IANA tz, used in the "All times in X" banner
 // at the top of the editor so the organiser is never guessing.
-function useLiveTimeIn(tz: string | null): string {
+export function useLiveTimeIn(tz: string | null): string {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);
@@ -236,7 +236,7 @@ function useLiveTimeIn(tz: string | null): string {
 }
 
 /** Compact timezone abbreviation, e.g. "GST" / "BST" / "GMT+4". */
-function tzAbbrev(tz: string | null): string {
+export function tzAbbrev(tz: string | null): string {
   if (!tz) return '';
   try {
     const parts = new Intl.DateTimeFormat('en-GB', {
@@ -253,7 +253,7 @@ function tzAbbrev(tz: string | null): string {
  * Suffix shown next to every <input type="time"> so it's unambiguous which
  * timezone the value is being interpreted in. Renders e.g. "in Asia/Dubai (GST)".
  */
-const TimezoneTag: React.FC<{ tz: string | null }> = ({ tz }) => {
+export const TimezoneTag: React.FC<{ tz: string | null }> = ({ tz }) => {
   if (!tz) return null;
   const abbr = tzAbbrev(tz);
   return (
@@ -267,7 +267,7 @@ const TimezoneTag: React.FC<{ tz: string | null }> = ({ tz }) => {
 // ── Per-message template editor ───────────────────────────────────────────
 // Collapsible "Customise wording" expander shown beneath each
 // MessageDestinationRow. NULL value = use built-in default.
-const MessageTemplateExpander: React.FC<{
+export const MessageTemplateExpander: React.FC<{
   meta: TemplateMeta;
   session: SessionSchedule;
   onChange: (next: string | null) => void;
