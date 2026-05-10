@@ -30,6 +30,11 @@ const DEFAULT_INSERT: Omit<SessionScheduleInsert, 'name'> = {
   nudge_enabled: true,
   nudge_days_before: 0,
   nudge_time: '09:00',
+  callout_enabled: true,
+  team_post_enabled: true,
+  auto_cancel_enabled: false,  // opt-in: never auto-post a "called off" message by default
+  mom_results_enabled: true,
+  approval_dm_enabled: true,
   team_gen_offset_hours: 2,
   mom_enabled: true,
   match_duration_minutes: 60,

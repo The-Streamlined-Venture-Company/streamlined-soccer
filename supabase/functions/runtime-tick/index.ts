@@ -121,8 +121,15 @@ interface SessionSchedule {
   id: string; name: string; enabled: boolean;
   kickoff_dow: number; kickoff_time: string; pitch_label: string | null;
   weekly_post_dow: number; weekly_post_time: string;
+  // Per-message toggles. confirmation/nudge/mom existed; the rest are new.
+  // Defaults: callout/team_post/mom_results/approval_dm = true; auto_cancel = false.
   confirmation_enabled: boolean; confirmation_days_before: number; confirmation_time: string | null;
   nudge_enabled: boolean; nudge_days_before: number; nudge_time: string;
+  callout_enabled: boolean;
+  team_post_enabled: boolean;
+  auto_cancel_enabled: boolean;
+  mom_results_enabled: boolean;
+  approval_dm_enabled: boolean;
   team_gen_offset_hours: number; team_gen_require_approval: boolean;
   team_force_post_minutes_before_kickoff: number;
   mom_enabled: boolean; match_duration_minutes: number; mom_delay_minutes: number; mom_results_post_minutes: number;
@@ -480,6 +487,10 @@ async function fireCalloutPoll(
     await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: callout already past in state '${ws.state}'` });
     return;
   }
+  if (!s.callout_enabled) {
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: call-out skipped — callout_enabled=false` });
+    return;
+  }
   if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no whatsapp_group_jid` }); return; }
   const jwt = await ensureSenderJwt();
   if (!jwt) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: `no JWT` }); return; }
@@ -716,11 +727,14 @@ async function fireTeamGen(
 
   // Auto-cancel if signups are below the cancellation floor. Skip team gen
   // entirely, post a "called off" message to the group, mark the session
-  // cancelled. Only triggers if a forced lineup hasn't been set (organiser
-  // override always beats auto-cancel).
+  // cancelled. Only triggers when:
+  //   - auto_cancel_enabled is true (organiser opted into it), AND
+  //   - no forced lineup is set (organiser override always beats auto-cancel).
+  // If auto_cancel_enabled is false, we proceed with team gen as if signup
+  // count were fine — the threshold then only drives the nudge copy.
   const cancelFloor = Number(s.cancel_below_players ?? s.min_players);
   const forcedPlayerIdsForCheck: string[] = Array.isArray(ws.forced_lineup_player_ids) ? ws.forced_lineup_player_ids : [];
-  if (forcedPlayerIdsForCheck.length === 0 && Number(ws.signups_in ?? 0) < cancelFloor) {
+  if (s.auto_cancel_enabled === true && forcedPlayerIdsForCheck.length === 0 && Number(ws.signups_in ?? 0) < cancelFloor) {
     if (s.whatsapp_group_jid) {
       const jwt = await ensureSenderJwt();
       if (jwt) {
@@ -872,6 +886,11 @@ async function fireTeamGen(
     return;
   }
 
+  if (s.approval_dm_enabled === false) {
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: approval DM skipped — approval_dm_enabled=false. Lineup ${lineupIns.id} stays in pending_approval until you confirm or force-post fires.` });
+    return;
+  }
+
   // Send approval DM to organiser
   const jwt = await ensureSenderJwt();
   if (!jwt) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'error', summary: 'no JWT' }); return; }
@@ -912,6 +931,13 @@ async function postConfirmedLineups(
       .from('session_schedules').select('*').eq('id', lineup.session_schedule_id).single();
     if (!sched) { await log({ kind: 'error', summary: `lineup ${lineup.id}: schedule not found` }); continue; }
     const s = sched as SessionSchedule;
+    if (s.team_post_enabled === false) {
+      await log({ session_schedule_id: s.id, kind: 'skipped', summary: `${s.name}: team image post skipped — team_post_enabled=false. Lineup ${lineup.id} ready but not auto-shared.` });
+      // Mark posted_at so we don't keep retrying every tick. The lineup row
+      // itself stays as 'confirmed' for the organiser to share manually.
+      await supabase.from('lineups').update({ posted_at: new Date().toISOString() }).eq('id', lineup.id);
+      continue;
+    }
     if (!s.whatsapp_group_jid) { await log({ session_schedule_id: s.id, kind: 'error', summary: `lineup ${lineup.id}: no group_jid` }); continue; }
 
     const positions = (Array.isArray(lineup.player_positions) ? lineup.player_positions : []) as LineupPosition[];
@@ -1200,6 +1226,12 @@ async function fireMomResults(
   if (!ws) return;
   if (ws.state === 'cancelled' || ws.state === 'confirmation_declined') { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — state '${ws.state}'` }); return; }
   if (ws.mom_results_message_id) { await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results already posted` }); return; }
+  if (s.mom_results_enabled === false) {
+    await log({ session_schedule_id: s.id, weekly_session_id: ws.id, kind: 'skipped', summary: `${s.name}: mom_results skipped — mom_results_enabled=false. Tally is in soccer.mom_votes if you want to look.` });
+    // Mark as posted so we don't keep evaluating this fire on every tick.
+    await supabase.from('weekly_sessions').update({ state: 'mom_closed', mom_results_message_id: 'suppressed' }).eq('id', ws.id);
+    return;
+  }
 
   const jwt = await ensureSenderJwt();
   if (!jwt) return;

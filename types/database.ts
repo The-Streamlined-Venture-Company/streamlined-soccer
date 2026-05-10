@@ -335,6 +335,11 @@ export interface Database {
           nudge_enabled: boolean;
           nudge_days_before: number;
           nudge_time: string;
+          callout_enabled: boolean;
+          team_post_enabled: boolean;
+          auto_cancel_enabled: boolean;
+          mom_results_enabled: boolean;
+          approval_dm_enabled: boolean;
           team_gen_offset_hours: number;
           team_force_post_minutes_before_kickoff: number;
           mom_enabled: boolean;
@@ -377,6 +382,11 @@ export interface Database {
           nudge_enabled?: boolean;
           nudge_days_before?: number;
           nudge_time?: string;
+          callout_enabled?: boolean;
+          team_post_enabled?: boolean;
+          auto_cancel_enabled?: boolean;
+          mom_results_enabled?: boolean;
+          approval_dm_enabled?: boolean;
           team_gen_offset_hours?: number;
           team_force_post_minutes_before_kickoff?: number;
           mom_enabled?: boolean;
@@ -411,6 +421,11 @@ export interface Database {
           nudge_enabled?: boolean;
           nudge_days_before?: number;
           nudge_time?: string;
+          callout_enabled?: boolean;
+          team_post_enabled?: boolean;
+          auto_cancel_enabled?: boolean;
+          mom_results_enabled?: boolean;
+          approval_dm_enabled?: boolean;
           team_gen_offset_hours?: number;
           team_force_post_minutes_before_kickoff?: number;
           mom_enabled?: boolean;

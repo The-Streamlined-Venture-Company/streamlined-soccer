@@ -115,6 +115,68 @@ const Toggle: React.FC<{
   </label>
 );
 
+/**
+ * Per-message toggle row used in the "Automated messages" panel. Renders the
+ * same switch as <Toggle/> but with a richer body — target, timing, and a
+ * one-line description so it's clear what fires and where.
+ */
+const MessageToggle: React.FC<{
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  target: string;
+  timing: string;
+  desc: string;
+  warn?: boolean;
+  warnLabel?: string;
+}> = ({ checked, onChange, label, target, timing, desc, warn, warnLabel }) => (
+  <div
+    className={`flex items-start gap-3 px-3 py-3 rounded-lg border transition-colors ${
+      warn
+        ? 'border-amber-500/40 bg-amber-500/5'
+        : checked
+          ? 'border-slate-700 bg-slate-900/40'
+          : 'border-slate-800 bg-slate-900/20 opacity-70'
+    }`}
+  >
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative mt-0.5 w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
+        checked ? 'bg-emerald-500' : 'bg-slate-700'
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+          checked ? 'translate-x-5' : ''
+        }`}
+      />
+    </button>
+    <div className="flex-1 min-w-0">
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-white text-sm font-semibold">{label}</span>
+        <span className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">
+          {target}
+        </span>
+      </div>
+      <div className="text-emerald-400/70 text-[11px] mt-0.5 font-medium">{timing}</div>
+      <div className="text-slate-400 text-xs mt-1 leading-snug">{desc}</div>
+      {warn && warnLabel && checked && (
+        <div className="text-amber-300 text-[11px] font-bold mt-1.5 uppercase tracking-wider">
+          ⚠ {warnLabel}
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function dayName(dow: number): string {
+  return DOW_NAMES[dow] ?? '?';
+}
+
 const SessionEditor: React.FC<SessionEditorProps> = ({
   schedule,
   relayUrl,
@@ -233,6 +295,95 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
             className={inputCls}
           />
         </Field>
+      </SubSection>
+
+      {/* Automated messages — master kill switches per outbound message */}
+      <SubSection
+        title="Automated messages"
+        summary={(() => {
+          const all = [
+            merged.callout_enabled, merged.confirmation_enabled, merged.nudge_enabled,
+            merged.approval_dm_enabled, merged.team_post_enabled, merged.mom_enabled,
+            merged.mom_results_enabled,
+          ];
+          const on = all.filter(Boolean).length;
+          const auto = merged.auto_cancel_enabled ? ' · auto-cancel ON' : '';
+          return `${on}/${all.length} on${auto}`;
+        })()}
+        defaultOpen
+      >
+        <p className="text-xs text-slate-500 leading-relaxed -mt-2">
+          Every message the bot can send. Turn anything off to stop it firing — the rest of the flow keeps working.
+        </p>
+        <div className="space-y-2">
+          <MessageToggle
+            checked={merged.confirmation_enabled}
+            onChange={v => set('confirmation_enabled', v)}
+            label="Confirmation DM"
+            target="DM to organiser"
+            timing={`${merged.confirmation_days_before}d before call-out at ${merged.confirmation_time?.slice(0, 5) ?? '—'}`}
+            desc="A short DM the day before the call-out so you can cancel that week if needed."
+          />
+          <MessageToggle
+            checked={merged.callout_enabled}
+            onChange={v => set('callout_enabled', v)}
+            label="Call-out poll"
+            target="Group post"
+            timing={`${dayName(merged.weekly_post_dow)} at ${merged.weekly_post_time?.slice(0, 5) ?? '—'}`}
+            desc="The weekly &quot;Are you in?&quot; poll. Without this, no signups can come in."
+            warn={!merged.callout_enabled}
+          />
+          <MessageToggle
+            checked={merged.nudge_enabled}
+            onChange={v => set('nudge_enabled', v)}
+            label="Low-signup nudge"
+            target="Group post"
+            timing={`${merged.nudge_days_before === 0 ? 'Same day' : `${merged.nudge_days_before}d before`} at ${merged.nudge_time?.slice(0, 5) ?? '—'} (if signups < ${merged.nudge_below_players})`}
+            desc="A reminder pinging the group when signups are below the nudge threshold."
+          />
+          <MessageToggle
+            checked={merged.auto_cancel_enabled}
+            onChange={v => set('auto_cancel_enabled', v)}
+            label="Auto-cancel post"
+            target="Group post"
+            timing={`At team-gen time (${merged.team_gen_offset_hours}h before kickoff) if signups < ${merged.cancel_below_players}`}
+            desc={`When ON, the bot posts a "🚫 game called off" message and cancels the session automatically. When OFF, the threshold only drives the nudge copy ("we need X or game's off") — you cancel manually.`}
+            warn={merged.auto_cancel_enabled}
+            warnLabel="Will auto-post to the group"
+          />
+          <MessageToggle
+            checked={merged.approval_dm_enabled}
+            onChange={v => set('approval_dm_enabled', v)}
+            label="Lineup approval DM"
+            target="DM to organiser"
+            timing={`${merged.team_gen_offset_hours}h before kickoff (only if approval is required)`}
+            desc="A DM with a link to preview/edit/approve the auto-balanced lineup before it posts."
+          />
+          <MessageToggle
+            checked={merged.team_post_enabled}
+            onChange={v => set('team_post_enabled', v)}
+            label="Team image post"
+            target="Group post"
+            timing="As soon as the lineup is confirmed (or force-posted)"
+            desc="The pitch image showing the two balanced teams. If off, the lineup is generated but not auto-shared."
+          />
+          <MessageToggle
+            checked={merged.mom_enabled}
+            onChange={v => set('mom_enabled', v)}
+            label="Man-of-the-Match vote"
+            target={merged.mom_method === 'web_link' ? 'Group post (vote link)' : merged.mom_method === 'organiser_dm' ? 'DM to organiser (poll)' : 'Per-player DM polls'}
+            timing={`${merged.match_duration_minutes + merged.mom_delay_minutes}min after kickoff`}
+            desc="The MoM voting message — link, organiser-only DM poll, or per-player DM polls (per the method below)."
+          />
+          <MessageToggle
+            checked={merged.mom_results_enabled}
+            onChange={v => set('mom_results_enabled', v)}
+            label="MoM winner announcement"
+            target="Group post"
+            timing={`${merged.mom_results_post_minutes}min after the MoM message`}
+            desc="The post announcing the winner + runner-up. Off means votes still get tallied but you announce manually."
+          />
+        </div>
       </SubSection>
 
       {/* Call-out poll options */}
