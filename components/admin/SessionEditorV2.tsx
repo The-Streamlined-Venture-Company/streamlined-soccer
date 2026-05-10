@@ -756,9 +756,12 @@ const SessionEditorV2: React.FC<Props> = ({
 
               <Field label="How to collect votes">
                 <div className="space-y-2">
+                  {/* `whatsapp_poll` (per-player DM polls) is intentionally not
+                      exposed — its aggregation is unreliable. The runtime still
+                      handles existing rows that have it set; it just isn't
+                      presented as a fresh choice anywhere. */}
                   {([
                     { value: 'web_link', label: 'Vote link', tagline: 'Recommended', desc: 'One anonymous link posted to the group. Players tap, pick, done. One vote per device.' },
-                    { value: 'whatsapp_poll', label: 'Per-player DM polls', tagline: 'Less reliable', desc: "DM each player a private poll listing the others. Aggregation depends on WhatsApp's poll API and isn't always reliable." },
                     { value: 'organiser_dm', label: 'Organiser DM', tagline: 'No group needed', desc: "One poll DM'd to you with all players as options. You decide. Use when there's no WhatsApp group." },
                   ] as const).map(opt => {
                     const selected = merged.mom_method === opt.value;
@@ -777,9 +780,7 @@ const SessionEditorV2: React.FC<Props> = ({
                             <div className="flex items-baseline gap-2">
                               <span className={`text-sm font-medium ${selected ? 'text-white' : 'text-slate-300'}`}>{opt.label}</span>
                               <span className={`text-[10px] font-black uppercase tracking-[0.15em] ${
-                                opt.tagline === 'Recommended' ? 'text-emerald-400'
-                                  : opt.tagline === 'Less reliable' ? 'text-amber-400'
-                                  : 'text-slate-500'
+                                opt.tagline === 'Recommended' ? 'text-emerald-400' : 'text-slate-500'
                               }`}>{opt.tagline}</span>
                             </div>
                             <p className="text-xs text-slate-500 mt-1 leading-snug">{opt.desc}</p>

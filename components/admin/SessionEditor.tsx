@@ -945,6 +945,10 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
             </div>
             <Field label="How to collect votes">
               <div className="space-y-2">
+                {/* `whatsapp_poll` (per-player DM polls) is intentionally not
+                    exposed — its aggregation is unreliable. The runtime still
+                    handles existing rows that have it set; it just isn't
+                    presented as a fresh choice anywhere. */}
                 {(
                   [
                     {
@@ -952,12 +956,6 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
                       label: 'Vote link',
                       tagline: 'Recommended',
                       desc: 'One anonymous link posted to the group. Players tap, pick, done. One vote per device.',
-                    },
-                    {
-                      value: 'whatsapp_poll',
-                      label: 'Per-player DM polls',
-                      tagline: 'Less reliable',
-                      desc: "DM each player a private poll listing the others. Aggregation depends on WhatsApp's poll API and isn't always reliable.",
                     },
                     {
                       value: 'organiser_dm',
@@ -992,11 +990,7 @@ const SessionEditor: React.FC<SessionEditorProps> = ({
                             </span>
                             <span
                               className={`text-[10px] font-black uppercase tracking-[0.15em] ${
-                                opt.tagline === 'Recommended'
-                                  ? 'text-emerald-400'
-                                  : opt.tagline === 'Less reliable'
-                                    ? 'text-amber-400'
-                                    : 'text-slate-500'
+                                opt.tagline === 'Recommended' ? 'text-emerald-400' : 'text-slate-500'
                               }`}
                             >
                               {opt.tagline}
